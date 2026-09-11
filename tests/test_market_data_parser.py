@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from parsing_engine import build_parsing_report
+from portfolio_analytics.ingestion.parsing_engine import build_parsing_report
 
 
 EXPECTED_MARKET_ROLES = {

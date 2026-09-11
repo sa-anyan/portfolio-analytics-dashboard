@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     CURRENT_PRICE_NAMES,
     FEE_NAMES,
     GROSS_VALUE_NAMES,

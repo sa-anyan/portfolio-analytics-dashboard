@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from parsing_engine import build_parsing_report
-from market_analysis import (
+from portfolio_analytics.ingestion.parsing_engine import build_parsing_report
+from portfolio_analytics.analytics.market_analysis import (
     standardise_market_data,
     asset_metrics,
     portfolio_metrics,
@@ -69,7 +69,7 @@ def test_a2m_filename_ticker_inference_supports_analytics():
 
 def test_signed_portfolio_returns_preserves_short_direction():
     import pandas as pd
-    from market_analysis import signed_portfolio_returns
+    from portfolio_analytics.analytics.market_analysis import signed_portfolio_returns
 
     returns = pd.DataFrame({
         "LONG": [0.10, -0.02],
@@ -85,7 +85,7 @@ def test_signed_portfolio_returns_preserves_short_direction():
 
 def test_signed_portfolio_metrics_accepts_long_short_weights():
     import pandas as pd
-    from market_analysis import signed_portfolio_metrics
+    from portfolio_analytics.analytics.market_analysis import signed_portfolio_metrics
 
     returns = pd.DataFrame({
         "LONG": [0.01, 0.02, -0.01, 0.005],
@@ -102,7 +102,7 @@ def test_signed_portfolio_metrics_accepts_long_short_weights():
 
 def test_signed_risk_contribution_supports_negative_weights():
     import pandas as pd
-    from market_analysis import signed_risk_contribution
+    from portfolio_analytics.analytics.market_analysis import signed_risk_contribution
 
     returns = pd.DataFrame({
         "LONG": [0.01, 0.02, -0.01, 0.005, 0.015],

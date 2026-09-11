@@ -13,14 +13,14 @@ This build contains a self-running validation lab for the portfolio cleaner.
 7. Counts a safe refusal to invent Date, Action or Transaction ID as a correct escalation.
 8. Writes detailed CSV/JSON reports automatically.
 
-This is synthetic stress testing and rule/pattern learning, not neural-network training. The perfect portfolio is the answer key, so the system can score itself without ChatGPT judging each case.
+This is synthetic stress testing and rule/pattern learning, not neural-network training. The perfect portfolio is the answer key, so the system can score itself without requiring an external model to judge each case.
 
 ## Run
 
 From the project folder:
 
 ```bash
-python automated_validation_lab.py
+python -m portfolio_analytics.validation.automated_validation_lab
 ```
 
 Default settings:
@@ -36,7 +36,7 @@ Output folder: validation_outputs/
 Custom run:
 
 ```bash
-python automated_validation_lab.py --scenarios 20000 --seed 20260909 --max-missing 5 --output validation_outputs
+python -m portfolio_analytics.validation.automated_validation_lab --scenarios 20000 --seed 20260909 --max-missing 5 --output validation_outputs
 ```
 
 ## Output

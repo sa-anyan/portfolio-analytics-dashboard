@@ -8,9 +8,9 @@ import pandas as pd
 # Keep this smoke test network-free even in environments without yfinance.
 sys.modules.setdefault("yfinance", types.ModuleType("yfinance"))
 
-from input_parser import extract_frozen_prices
-from today_engine import build_current_account, value_current_positions, build_historical_account_equity
-from valuation_engine import (
+from portfolio_analytics.ingestion.input_parser import extract_frozen_prices
+from portfolio_analytics.accounting.today_engine import build_current_account, value_current_positions, build_historical_account_equity
+from portfolio_analytics.accounting.valuation_engine import (
     FROZEN_SNAPSHOT,
     frozen_snapshot_as_of,
     get_valuation_prices,

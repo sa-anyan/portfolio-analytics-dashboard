@@ -15,17 +15,22 @@ env/
 .idea/
 .vscode/
 .DS_Store
-Thumbs.db
 
-# Streamlit local secrets
+# Streamlit secrets
 .streamlit/secrets.toml
 
-# Local data / exports
+# Local user data / portfolio exports
 *.csv
 *.xlsx
 *.xls
 *.parquet
-*.zip
+*.feather
 
-# Keep version-controlled validation outputs
+# Logs / temporary files
+*.log
+*.tmp
+*.swp
 !validation_outputs/*.csv
+!tests/fixtures/*.csv
+!tests/fixtures/*.xlsx
+!tests/fixtures/*.xls

@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from auto_clean import auto_clean_ledger
-from repair_engine import diagnose_repairs, apply_repairs
+from portfolio_analytics.quality.auto_clean import auto_clean_ledger
+from portfolio_analytics.quality.repair_engine import diagnose_repairs, apply_repairs
 
 
 def _map(table: pd.DataFrame):

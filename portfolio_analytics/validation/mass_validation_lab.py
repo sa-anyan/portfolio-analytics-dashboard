@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from automated_validation_lab import (
+from portfolio_analytics.validation.automated_validation_lab import (
     ALL_FIELDS,
     DISPLAY_FIELD,
     _missing,
@@ -18,8 +18,8 @@ from automated_validation_lab import (
     expected_recoverability,
     _load_ground_truth,
 )
-from pattern_learning import learn_portfolio_patterns, save_pattern_profile
-from repair_engine import diagnose_repairs, apply_repairs
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns, save_pattern_profile
+from portfolio_analytics.quality.repair_engine import diagnose_repairs, apply_repairs
 
 
 DEFAULT_LEVELS = (1, 2, 3, 5, 10, 25, 50, 100, 250, 500, 750, 1000, 1200)

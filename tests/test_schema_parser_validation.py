@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from parsing_engine import infer_schema, classify_frame
+from portfolio_analytics.ingestion.parsing_engine import infer_schema, classify_frame
 from tests.corruption_engine import rename_headers
 
 

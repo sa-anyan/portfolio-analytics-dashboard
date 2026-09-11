@@ -3,7 +3,7 @@
 From the project folder:
 
 ```bash
-python mass_validation_lab.py
+python -m portfolio_analytics.validation.mass_validation_lab
 ```
 
 The script will:

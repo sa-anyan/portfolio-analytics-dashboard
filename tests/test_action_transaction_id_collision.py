@@ -1,7 +1,7 @@
 import pandas as pd
 
-from input_parser import TYPE_NAMES, _find_column, build_data_quality_report, clean_transaction_ledger
-from auto_clean import auto_clean_ledger
+from portfolio_analytics.ingestion.input_parser import TYPE_NAMES, _find_column, build_data_quality_report, clean_transaction_ledger
+from portfolio_analytics.quality.auto_clean import auto_clean_ledger
 
 
 def _action_named_ledger():

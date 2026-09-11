@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from hard_validation_lab import _apply_corruption, _value_matches, run_hard_validation
-from pattern_learning import learn_portfolio_patterns
-from repair_engine import apply_repairs, diagnose_repairs
+from portfolio_analytics.validation.hard_validation_lab import _apply_corruption, _value_matches, run_hard_validation
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns
+from portfolio_analytics.quality.repair_engine import apply_repairs, diagnose_repairs
 
 
 def _clean_fixture():

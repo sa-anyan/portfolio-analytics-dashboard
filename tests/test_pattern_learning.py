@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pattern_learning import learn_portfolio_patterns
-from repair_engine import diagnose_repairs
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns
+from portfolio_analytics.quality.repair_engine import diagnose_repairs
 
 
 def test_perfect_portfolio_learns_core_relationships(clean_transactions):

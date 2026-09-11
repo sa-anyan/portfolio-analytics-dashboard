@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 import pandas as pd
 
-from input_parser import clean_number, clean_date
+from portfolio_analytics.ingestion.input_parser import clean_number, clean_date
 
 
 #______________________________________________________________________________

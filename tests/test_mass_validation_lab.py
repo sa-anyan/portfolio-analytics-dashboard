@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mass_validation_lab import DEFAULT_LEVELS, run_mass_validation
+from portfolio_analytics.validation.mass_validation_lab import DEFAULT_LEVELS, run_mass_validation
 
 
 def test_mass_validation_supports_catastrophic_missing_cell_scenarios(clean_transactions):

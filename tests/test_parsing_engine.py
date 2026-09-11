@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from parsing_engine import (
+from portfolio_analytics.ingestion.parsing_engine import (
     analyse_date_column,
     build_parsing_report,
     infer_schema,

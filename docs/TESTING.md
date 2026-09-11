@@ -40,7 +40,7 @@ The corruption engine uses fixed random seeds so every failure is reproducible.
 
 ## v3.22 — automated 20,000-scenario validation lab
 
-Run `python automated_validation_lab.py` to learn from the perfect portfolio, create 20,000 deterministic mixed-missing scenarios, run the production repair engine, compare every decision with ground truth, and write a failure report automatically. See `RUN_20000_VALIDATION.md`.
+Run `python -m portfolio_analytics.validation.automated_validation_lab` to learn from the perfect portfolio, create 20,000 deterministic mixed-missing scenarios, run the production repair engine, compare every decision with ground truth, and write a failure report automatically. See `RUN_20000_VALIDATION.md`.
 
 ## v3.30 accounting coalescing safety
 - Prevents price metadata columns such as `Derived Price Method`, `Price Source`, and `Price Change %` from being coalesced into numeric `Price`.

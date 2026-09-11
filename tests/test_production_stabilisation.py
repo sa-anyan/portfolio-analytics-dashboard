@@ -1,11 +1,11 @@
 import pandas as pd
 
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     standardise_ledger_for_accounting,
     ledger_security_inputs,
 )
-from today_engine import prepare_transactions
-from repair_engine import diagnose_repairs
+from portfolio_analytics.accounting.today_engine import prepare_transactions
+from portfolio_analytics.quality.repair_engine import diagnose_repairs
 
 
 def test_accounting_standardiser_coalesces_alias_collisions():

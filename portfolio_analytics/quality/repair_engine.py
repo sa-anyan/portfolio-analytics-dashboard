@@ -6,9 +6,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from pattern_learning import learn_portfolio_patterns
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns
 
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     CURRENT_PRICE_NAMES,
     FEE_NAMES,
     GROSS_VALUE_NAMES,

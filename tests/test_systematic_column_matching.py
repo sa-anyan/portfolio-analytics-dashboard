@@ -1,7 +1,7 @@
 import pandas as pd
 
-from input_parser import _find_column, SECURITY_NAMES, TYPE_NAMES, DATE_NAMES
-from parsing_engine import build_parsing_report, score_column_role
+from portfolio_analytics.ingestion.input_parser import _find_column, SECURITY_NAMES, TYPE_NAMES, DATE_NAMES
+from portfolio_analytics.ingestion.parsing_engine import build_parsing_report, score_column_role
 
 
 def test_exact_alias_beats_generic_token_match():

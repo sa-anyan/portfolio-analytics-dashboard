@@ -16,7 +16,7 @@ try:
 except ImportError:  # validation-only environments may not need live Yahoo access
     yf = None
 
-from parsing_engine import (
+from portfolio_analytics.ingestion.parsing_engine import (
     build_parsing_report,
     find_best_header_row,
 )

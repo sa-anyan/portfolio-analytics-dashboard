@@ -1,6 +1,6 @@
 import pandas as pd
 
-from input_parser import prepare_holdings_for_review
+from portfolio_analytics.ingestion.input_parser import prepare_holdings_for_review
 
 
 def test_invalid_quantity_row_survives_preparation_for_human_review():

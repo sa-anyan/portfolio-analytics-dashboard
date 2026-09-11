@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-import input_parser
+import portfolio_analytics.ingestion.input_parser as input_parser
 
 
 def test_invalid_security_and_quantity_are_preserved_for_review(monkeypatch):

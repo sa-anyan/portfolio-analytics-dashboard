@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from market_data import get_historical_prices, get_market_data
+from portfolio_analytics.analytics.market_data import get_historical_prices, get_market_data
 
 
 #______________________________________________________________________________

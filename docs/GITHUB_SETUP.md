@@ -1,31 +1,16 @@
-# Uploading this project to GitHub
+# GitHub Setup
 
-## First-time setup from PyCharm Terminal
-
-1. Create a new empty repository on GitHub. Do not initialise it with a README, `.gitignore`, or licence because this project already contains repository files.
-2. Open this project folder in PyCharm.
-3. Open **Terminal** in PyCharm.
-4. Run:
+From the project folder:
 
 ```bash
 git init
+git status
 git add .
 git status
 git commit -m "Initial portfolio analytics project"
 git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
+git remote add origin https://github.com/YOUR-USERNAME/portfolio-analytics.git
 git push -u origin main
 ```
 
-Replace `YOUR-USERNAME` and `YOUR-REPOSITORY` with your own values.
-
-## Normal updates afterwards
-
-```bash
-git status
-git add .
-git commit -m "Describe what changed"
-git push
-```
-
-Always check `git status` before committing so you do not accidentally upload portfolio data, secrets, or local environment files.
+Always review `git status` before committing. Do not commit brokerage exports, credentials, `.venv`, or `.streamlit/secrets.toml`.

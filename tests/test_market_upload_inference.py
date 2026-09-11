@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from input_parser import read_upload
+from portfolio_analytics.ingestion.input_parser import read_upload
 
 
 def test_a2m_csv_infers_ticker_from_filename():

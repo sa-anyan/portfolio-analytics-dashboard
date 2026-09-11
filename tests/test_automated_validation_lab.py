@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from automated_validation_lab import (
+from portfolio_analytics.validation.automated_validation_lab import (
     expected_recoverability,
     generate_scenarios,
     run_automated_validation,
 )
-from pattern_learning import learn_portfolio_patterns
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns
 
 
 def test_scenarios_are_reproducible_and_unique(clean_transactions):

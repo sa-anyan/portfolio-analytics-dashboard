@@ -2,7 +2,7 @@ from __future__ import annotations
 import sys, types
 import pandas as pd
 sys.modules.setdefault("yfinance", types.ModuleType("yfinance"))
-from repair_engine import diagnose_repairs, apply_repairs
+from portfolio_analytics.quality.repair_engine import diagnose_repairs, apply_repairs
 
 
 def _find(suggestions, row, field):

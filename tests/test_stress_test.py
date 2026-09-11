@@ -1,6 +1,6 @@
 import pandas as pd
 
-from stress_test import run_stress_test
+from portfolio_analytics.analytics.stress_test import run_stress_test
 
 
 def test_stress_test_preserves_long_short_direction():

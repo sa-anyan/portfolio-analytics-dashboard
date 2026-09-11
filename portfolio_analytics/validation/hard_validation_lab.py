@@ -10,11 +10,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from automated_validation_lab import ALL_FIELDS, DISPLAY_FIELD, _load_ground_truth, _missing
-from auto_clean import auto_clean_ledger
-from input_parser import clean_number, standardise_ticker
-from pattern_learning import learn_portfolio_patterns, save_pattern_profile
-from repair_engine import apply_repairs, diagnose_repairs
+from portfolio_analytics.validation.automated_validation_lab import ALL_FIELDS, DISPLAY_FIELD, _load_ground_truth, _missing
+from portfolio_analytics.quality.auto_clean import auto_clean_ledger
+from portfolio_analytics.ingestion.input_parser import clean_number, standardise_ticker
+from portfolio_analytics.quality.pattern_learning import learn_portfolio_patterns, save_pattern_profile
+from portfolio_analytics.quality.repair_engine import apply_repairs, diagnose_repairs
 
 
 DEFAULT_LEVELS = (1, 2, 3, 5, 10, 25, 50, 100, 250, 500, 750, 1000, 1200)

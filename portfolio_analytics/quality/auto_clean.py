@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     CASH_AMOUNT_NAMES,
     CURRENT_PRICE_NAMES,
     DATE_NAMES,

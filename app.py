@@ -20,18 +20,18 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import yfinance as yf
 
-from auto_clean import (
+from portfolio_analytics.quality.auto_clean import (
     auto_clean_ledger,
     combine_cash_events,
     extract_cash_events,
 )
-from repair_engine import (
+from portfolio_analytics.quality.repair_engine import (
     diagnose_repairs,
     apply_repairs,
 )
-from pattern_learning import profile_summary_table
-from market_data import get_market_data, get_market_data_range
-from market_analysis import (
+from portfolio_analytics.quality.pattern_learning import profile_summary_table
+from portfolio_analytics.analytics.market_data import get_market_data, get_market_data_range
+from portfolio_analytics.analytics.market_analysis import (
     standardise_market_data,
     asset_metrics,
     portfolio_metrics as market_portfolio_metrics,
@@ -39,7 +39,7 @@ from market_analysis import (
     risk_contribution as market_risk_contribution,
     monte_carlo_portfolios,
 )
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     apply_ledger_ticker_map,
     clean_transaction_ledger,
     build_data_quality_report,
@@ -54,14 +54,14 @@ from input_parser import (
     validate_holdings,
     validate_ledger_tickers,
 )
-from today_engine import (
+from portfolio_analytics.accounting.today_engine import (
     build_current_account,
     value_current_positions,
     build_transaction_price_audit,
     build_historical_account_equity,
 )
-from stress_test import run_stress_test
-from valuation_engine import (
+from portfolio_analytics.analytics.stress_test import run_stress_test
+from portfolio_analytics.accounting.valuation_engine import (
     LIVE_MARKET,
     HISTORICAL_AS_OF,
     FROZEN_SNAPSHOT,

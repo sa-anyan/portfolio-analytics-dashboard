@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from validation_lab import run_single_cell_repair_benchmark
+from portfolio_analytics.validation.validation_lab import run_single_cell_repair_benchmark
 
 
 def test_validation_lab_runs_ground_truth_cases(clean_transactions):

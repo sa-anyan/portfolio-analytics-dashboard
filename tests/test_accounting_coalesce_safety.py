@@ -1,6 +1,6 @@
 import pandas as pd
 
-from input_parser import standardise_ledger_for_accounting
+from portfolio_analytics.ingestion.input_parser import standardise_ledger_for_accounting
 
 
 def _base_frame():

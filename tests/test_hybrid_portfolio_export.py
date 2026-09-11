@@ -1,7 +1,7 @@
 import pandas as pd
 
-from parsing_engine import build_parsing_report
-from input_parser import read_upload, standardise_ledger_for_accounting
+from portfolio_analytics.ingestion.parsing_engine import build_parsing_report
+from portfolio_analytics.ingestion.input_parser import read_upload, standardise_ledger_for_accounting
 
 
 def _hybrid_frame():

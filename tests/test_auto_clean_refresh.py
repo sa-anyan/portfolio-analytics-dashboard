@@ -7,17 +7,17 @@ import pandas as pd
 
 sys.modules.setdefault("yfinance", types.ModuleType("yfinance"))
 
-from auto_clean import (
+from portfolio_analytics.quality.auto_clean import (
     auto_clean_ledger,
     combine_cash_events,
     extract_cash_events,
 )
-from input_parser import (
+from portfolio_analytics.ingestion.input_parser import (
     clean_transaction_ledger,
     flag_potential_duplicates,
     standardise_ledger_for_accounting,
 )
-from today_engine import build_current_account
+from portfolio_analytics.accounting.today_engine import build_current_account
 
 
 def test_auto_clean_updates_positions_and_cash() -> None:

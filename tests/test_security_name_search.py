@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-import input_parser
+import portfolio_analytics.ingestion.input_parser as input_parser
 
 
 class FakeSearch:

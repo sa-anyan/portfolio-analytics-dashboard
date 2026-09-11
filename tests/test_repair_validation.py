@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from repair_engine import diagnose_repairs, apply_repairs
+from portfolio_analytics.quality.repair_engine import diagnose_repairs, apply_repairs
 
 
 def _suggestion_for(table: pd.DataFrame, source_row: int, field: str) -> pd.Series:

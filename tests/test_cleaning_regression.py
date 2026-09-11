@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from auto_clean import auto_clean_ledger
+from portfolio_analytics.quality.auto_clean import auto_clean_ledger
 from tests.corruption_engine import (
     corrupt_action_aliases,
     corrupt_date_formats,
