@@ -1,0 +1,182 @@
+{
+  "columns": {
+    "action": "Type",
+    "asset": "Asset",
+    "currency": "Currency",
+    "date": "Date",
+    "fees": "Fees",
+    "gross_value": "Gross_Value",
+    "price": "Price",
+    "quantity": "Quantity",
+    "ticker": "Ticker",
+    "transaction_id": "Transaction_ID"
+  },
+  "mappings": {
+    "asset_to_ticker": {
+      "alphabet": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "GOOGL"
+      },
+      "amazon": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "AMZN"
+      },
+      "bitcoin": {
+        "purity": 1.0,
+        "support": 16,
+        "top_support": 16,
+        "value": "BTC"
+      },
+      "broadcom": {
+        "purity": 1.0,
+        "support": 17,
+        "top_support": 17,
+        "value": "AVGO"
+      },
+      "jpmorgan chase": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "JPM"
+      },
+      "microsoft": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "MSFT"
+      },
+      "nvidia": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "NVDA"
+      },
+      "spdr gold shares": {
+        "purity": 1.0,
+        "support": 21,
+        "top_support": 21,
+        "value": "GLD"
+      },
+      "tesla": {
+        "purity": 1.0,
+        "support": 9,
+        "top_support": 9,
+        "value": "TSLA"
+      },
+      "visa": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "V"
+      }
+    },
+    "ticker_to_asset": {
+      "amzn": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "Amazon"
+      },
+      "avgo": {
+        "purity": 1.0,
+        "support": 17,
+        "top_support": 17,
+        "value": "Broadcom"
+      },
+      "btc": {
+        "purity": 1.0,
+        "support": 16,
+        "top_support": 16,
+        "value": "Bitcoin"
+      },
+      "gld": {
+        "purity": 1.0,
+        "support": 21,
+        "top_support": 21,
+        "value": "SPDR Gold Shares"
+      },
+      "googl": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "Alphabet"
+      },
+      "jpm": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "JPMorgan Chase"
+      },
+      "msft": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "Microsoft"
+      },
+      "nvda": {
+        "purity": 1.0,
+        "support": 15,
+        "top_support": 15,
+        "value": "NVIDIA"
+      },
+      "tsla": {
+        "purity": 1.0,
+        "support": 9,
+        "top_support": 9,
+        "value": "Tesla"
+      },
+      "v": {
+        "purity": 1.0,
+        "support": 14,
+        "top_support": 14,
+        "value": "Visa"
+      }
+    }
+  },
+  "patterns": {
+    "actions": {
+      "support": 150,
+      "values": {
+        "BUY": 108,
+        "SELL": 42
+      }
+    },
+    "dates": {
+      "max": "2026-08-30",
+      "min": "2023-10-01",
+      "missing": 0,
+      "parse_success_share": 1.0,
+      "support": 150
+    },
+    "dominant_currency": {
+      "share": 1.0,
+      "support": 150,
+      "total": 150,
+      "value": "USD"
+    },
+    "fee_model": {
+      "median_abs_error": 0.0027152827409064884,
+      "median_relative_error": 0.00010090320038027054,
+      "minimum": 0.99,
+      "p95_abs_error": 0.013890994092798778,
+      "rate": 0.0008000032044935877,
+      "support": 150,
+      "within_0_05_share": 0.9866666666666667,
+      "within_0_50_share": 1.0
+    },
+    "gross_identity": {
+      "median_ratio": 1.0,
+      "median_relative_error": 6.944478712859521e-06,
+      "p95_relative_error": 1.80764815202567e-05,
+      "support": 150,
+      "within_0_1pct_share": 1.0,
+      "within_1pct_share": 1.0
+    }
+  },
+  "profile_name": "synthetic_perfect_portfolio_v1",
+  "rows": 150
+}
