@@ -95,15 +95,23 @@ def ask_portfolio_analyst(
         + question
     )
 
-    response = _client(api_key).models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            temperature=0.2,
-            max_output_tokens=900,
-        ),
-    )
+    # Keep the client alive for the full request. Some SDK/runtime combinations
+    # can otherwise release the temporary client before the underlying HTTP
+    # transport has completed the call.
+    client = _client(api_key)
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                temperature=0.2,
+                max_output_tokens=900,
+            ),
+        )
+    finally:
+        client.close()
+
     text = (response.text or "").strip()
     if not text:
         raise RuntimeError("Gemini returned an empty response.")
