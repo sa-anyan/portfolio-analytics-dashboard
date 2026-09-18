@@ -185,6 +185,10 @@ credentials, API keys or Streamlit secrets to the repository. Local
 portfolio data and development-environment files should remain excluded
 through `.gitignore`.
 
+## AI Assistance
+
+This project was designed, developed, tested, and iterated by Samuel Anyan with assistance from ChatGPT (OpenAI) for code development, debugging, architectural review, and documentation.
+
 ## Status
 
 This is an actively developed portfolio analytics prototype. The current
