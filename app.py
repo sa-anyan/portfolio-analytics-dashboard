@@ -68,6 +68,10 @@ from portfolio_analytics.accounting.valuation_engine import (
     frozen_snapshot_as_of,
     get_valuation_prices,
 )
+from portfolio_analytics.ai.portfolio_analyst import (
+    ask_portfolio_analyst,
+    explain_portfolio,
+)
 
 
 # Keep every Plotly figure on a clean white canvas to match the site theme.
@@ -5056,3 +5060,171 @@ st.success(
     "Risk analytics are active for historical market-data files and validated open positions, "
     "including reconstructed transaction-ledger books. Today's accounting remains unchanged."
 )
+
+
+#______________________________________________________________________________
+# AI PORTFOLIO ANALYST
+#______________________________________________________________________________
+
+st.subheader("AI Portfolio Analyst")
+st.caption(
+    "Gemini explains the results already calculated by this application. "
+    "It does not calculate or replace the portfolio accounting and risk engines, "
+    "and its responses are not personalised investment advice."
+)
+
+# Build a deliberately small, sanitised snapshot. Raw uploaded files, transaction
+# IDs and other unnecessary user data are never included in the Gemini prompt.
+ai_positions = []
+for _, row in valued_positions.iterrows():
+    ai_positions.append({
+        "ticker": str(row.get("Ticker", "")),
+        "position": str(row.get("Position", "")),
+        "quantity": float(row["Quantity"]) if pd.notna(row.get("Quantity")) else None,
+        "market_value": (
+            float(row["Signed Market Value"])
+            if pd.notna(row.get("Signed Market Value"))
+            else None
+        ),
+        "unrealised_pnl": (
+            float(row["Unrealised P&L"])
+            if pd.notna(row.get("Unrealised P&L"))
+            else None
+        ),
+    })
+
+ai_context = {
+    "valuation": {
+        "mode": valuation_mode,
+        "market_as_of": as_of_text,
+        "price_source": valuation_metadata.get("Price Source"),
+    },
+    "portfolio": {
+        "equity": float(portfolio_equity),
+        "cash_balance": float(cash_balance),
+        "long_exposure": float(exposure["Long Exposure"]),
+        "short_exposure": float(exposure["Short Exposure"]),
+        "gross_exposure": float(exposure["Gross Exposure"]),
+        "net_exposure": float(exposure["Net Exposure"]),
+        "open_unrealised_pnl": (
+            float(exposure["Unrealised P&L"])
+            if pd.notna(exposure["Unrealised P&L"])
+            else None
+        ),
+    },
+    "open_positions": ai_positions,
+}
+
+if "current_metrics" in locals() and current_metrics is not None:
+    ai_context["historical_risk"] = {
+        "annual_return": current_metrics.get("annual_return"),
+        "annual_volatility": current_metrics.get("annual_volatility"),
+        "sharpe": current_metrics.get("sharpe"),
+        "var_confidence": (
+            portfolio_var_level if "portfolio_var_level" in locals() else None
+        ),
+        "daily_var": current_metrics.get("var"),
+        "daily_expected_shortfall": current_metrics.get("expected_shortfall"),
+        "max_drawdown": current_metrics.get("max_drawdown"),
+        "interpretation_basis": (
+            allocation_caption if "allocation_caption" in locals() else None
+        ),
+    }
+
+if "contribution" in locals() and isinstance(contribution, pd.DataFrame) and not contribution.empty:
+    contribution_rows = contribution.reset_index().to_dict(orient="records")
+    ai_context["risk_contribution"] = contribution_rows
+
+gemini_api_key = None
+try:
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY")
+except Exception:
+    gemini_api_key = None
+
+if not gemini_api_key:
+    st.info(
+        "AI Portfolio Analyst is ready but not connected. Add GEMINI_API_KEY "
+        "to Streamlit secrets to enable explanations and questions."
+    )
+else:
+    if "ai_portfolio_messages" not in st.session_state:
+        st.session_state.ai_portfolio_messages = []
+
+    explain_col, clear_col = st.columns([1, 1])
+    with explain_col:
+        explain_clicked = st.button(
+            "Explain My Portfolio",
+            type="primary",
+            use_container_width=True,
+            key="ai_explain_portfolio",
+        )
+    with clear_col:
+        clear_clicked = st.button(
+            "Clear AI Conversation",
+            use_container_width=True,
+            key="ai_clear_conversation",
+        )
+
+    if clear_clicked:
+        st.session_state.ai_portfolio_messages = []
+        st.rerun()
+
+    if explain_clicked:
+        try:
+            with st.spinner("Analysing the portfolio results..."):
+                explanation = explain_portfolio(
+                    ai_context,
+                    api_key=gemini_api_key,
+                )
+            st.session_state.ai_portfolio_messages.append({
+                "role": "user",
+                "content": "Explain my portfolio.",
+            })
+            st.session_state.ai_portfolio_messages.append({
+                "role": "assistant",
+                "content": explanation,
+            })
+        except Exception as exc:
+            st.error(f"AI Portfolio Analyst could not respond: {exc}")
+
+    for message in st.session_state.ai_portfolio_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    ai_question = st.chat_input(
+        "Ask about your portfolio results...",
+        key="ai_portfolio_question",
+    )
+
+    if ai_question:
+        st.session_state.ai_portfolio_messages.append({
+            "role": "user",
+            "content": ai_question,
+        })
+
+        recent_history = st.session_state.ai_portfolio_messages[-7:-1]
+        history_text = "\n".join(
+            f"{item['role'].upper()}: {item['content']}"
+            for item in recent_history
+        )
+        contextual_question = (
+            ("RECENT CONVERSATION:\n" + history_text + "\n\n")
+            if history_text
+            else ""
+        ) + "CURRENT QUESTION:\n" + ai_question
+
+        try:
+            with st.spinner("AI Portfolio Analyst is thinking..."):
+                answer = ask_portfolio_analyst(
+                    contextual_question,
+                    ai_context,
+                    api_key=gemini_api_key,
+                )
+            st.session_state.ai_portfolio_messages.append({
+                "role": "assistant",
+                "content": answer,
+            })
+            st.rerun()
+        except Exception as exc:
+            st.session_state.ai_portfolio_messages.pop()
+            st.error(f"AI Portfolio Analyst could not respond: {exc}")
