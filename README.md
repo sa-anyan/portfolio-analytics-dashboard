@@ -1,195 +1,129 @@
-# Portfolio Analytics & Risk Platform
+# Portfolio Analytics v4.3
 
-A Python and Streamlit application for turning portfolio holdings and
-transaction data into a validated, auditable view of positions,
-valuation, performance and risk.
+A clean rebuild of the portfolio analytics dashboard around one deterministic portfolio state and an AI Copilot connected to every analytical stage.
 
-The project explores a practical problem in investment analytics:
-portfolio analysis is only as reliable as the data and accounting
-underneath it. The application therefore combines portfolio-data
-ingestion, data-quality checks, transaction accounting, market valuation
-and risk analytics in one workflow.
+## What v4 does
 
-## Key Features
+- CSV/XLSX portfolio upload
+- Manual holdings entry
+- Automatic holdings vs transaction-ledger detection during parsing
+- Canonical normalisation before accounting
+- Long/short ledger accounting with signed trade quantities
+- Average-cost realised/unrealised P&L
+- Cash, equity, cost basis and exposure state
+- Live prices and historical data through Yahoo Finance
+- Volatility, VaR, Expected Shortfall, Sharpe, drawdown and correlation
+- Risk-contribution and holdings/exposure pie charts
+- Actual ledger-path performance when enough historical data exists
+- Composable price, rate, resize, reallocation and target-volatility scenarios
+- OpenAI Copilot router for natural-language lookups, explanations and validated what-if routing
+- Side-by-side interactive Plotly visuals with short Copilot captions
 
-### Portfolio ingestion and data quality
+## Architecture
 
--   Upload CSV and Excel holdings or transaction-ledger files.
--   Detect portfolio structure and map relevant fields.
--   Resolve tickers and review uncertain security matches before
-    analysis.
--   Identify missing, inconsistent or contradictory financial data.
--   Generate repair suggestions with supporting evidence and confidence.
--   Preserve an audit trail of accepted, rejected and unresolved
-    changes.
+See `docs/ARCHITECTURE.md`.
 
-### Transaction accounting
+The critical rule is:
 
--   Reconstruct current long and short positions from transaction
-    history.
--   Track free cash and restricted short-sale cash.
--   Calculate realised and unrealised P&L.
--   Reconstruct dated account equity from transaction activity.
--   Keep unresolved transactions out of accounting until reviewed.
+> AI interprets → Python validates/calculates → AI explains.
 
-### Valuation
+`app.py` contains no financial mathematics.
 
--   Live market valuation.
--   Historical as-of valuation.
--   Frozen-price mode for controlled testing.
--   Current market price and daily price movement for open positions.
+## Install
 
-### Portfolio and risk analytics
-
--   Annualised return and volatility.
--   Sharpe ratio.
--   Historical Value at Risk (VaR).
--   Expected Shortfall (ES).
--   Maximum drawdown.
--   Correlation analysis.
--   Asset risk contribution.
--   Historical portfolio performance.
--   Stress testing.
--   Monte Carlo portfolio analysis where appropriate.
--   Security-level risk analytics.
-
-## How It Works
-
-``` text
-Portfolio file
-     |
-     v
-Schema detection
-     |
-     v
-Data Quality Check
-     |
-     v
-Review / repair uncertain data
-     |
-     v
-Validated portfolio or ledger
-     |
-     +----------------------+
-     |                      |
-     v                      v
-Accounting engine      Market data
-     |                      |
-     v                      v
-Open positions  --->  Valuation engine
-     |                      |
-     +----------+-----------+
-                |
-                v
-      Portfolio & risk analytics
-```
-
-For transaction ledgers, the system reconstructs the current open book
-before running holdings-style analytics. Historical transaction
-performance remains separate from analysis of the portfolio's current
-open positions.
-
-## Technology
-
-Python, Streamlit, pandas, NumPy, Plotly, yfinance and pytest.
-
-## Project Structure
-
-``` text
-portfolio-analytics-dashboard/
-├── app.py                         # Streamlit application entry point
-├── portfolio_analytics/           # Core application package
-│   ├── ingestion/                 # File parsing and schema detection
-│   │   ├── input_parser.py
-│   │   └── parsing_engine.py
-│   ├── quality/                   # Data-quality checks and repair logic
-│   │   ├── auto_clean.py
-│   │   ├── repair_engine.py
-│   │   └── pattern_learning.py
-│   ├── accounting/                # Position, cash and valuation engines
-│   │   ├── today_engine.py
-│   │   └── valuation_engine.py
-│   ├── analytics/                 # Market, risk and stress analytics
-│   │   ├── market_data.py
-│   │   ├── market_analysis.py
-│   │   └── stress_test.py
-│   └── validation/                # Synthetic validation and stress labs
-│       ├── validation_lab.py
-│       ├── automated_validation_lab.py
-│       ├── mass_validation_lab.py
-│       └── hard_validation_lab.py
-├── tests/                         # Automated regression and unit tests
-├── validation_outputs/            # Validation policy and benchmark outputs
-├── docs/                          # Testing and validation documentation
-├── .streamlit/                    # Streamlit configuration
-├── requirements.txt
-├── requirements-dev.txt
-└── README.md
-```
-
-## Run Locally
-
-Clone the repository and enter the project directory:
-
-``` bash
-git clone https://github.com/sa-anyan/portfolio-analytics-dashboard.git
-cd portfolio-analytics-dashboard
-```
-
-Create and activate a virtual environment:
-
-``` bash
-python -m venv .venv
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 ```
 
-On Windows, activate it with:
+For tests:
 
-``` bash
-.venv\Scripts\activate
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
 ```
 
-Install the dependencies and run the application:
+## OpenAI key
 
-``` bash
-pip install -r requirements.txt
-streamlit run app.py
+Copy:
+
+```text
+.streamlit/secrets.toml.example
 ```
 
-## Testing
+to:
 
-Run the automated test suite with:
-
-``` bash
-pytest -q
+```text
+.streamlit/secrets.toml
 ```
 
-The project also contains validation tooling for testing portfolio-data
-cleaning and repair behaviour under synthetic corruption scenarios.
+and add your API key. The real secrets file is ignored by Git.
 
-## Design Principles
+## Run
 
--   Unresolved data should not silently enter accounting.
--   Cash and positions are reconstructed before portfolio analytics.
--   Market-price files are kept separate from transaction accounting.
--   Historical account performance and current-open-book analytics are
-    treated as different questions.
--   Missing market information is displayed as unavailable rather than
-    replaced with fabricated values.
--   Suggested data repairs remain reviewable and auditable.
+```bash
+python3 -m streamlit run app.py
+```
 
-## Data Privacy
+## Important scenario limits
 
-Do not commit brokerage statements, personal portfolio exports,
-credentials, API keys or Streamlit secrets to the repository. Local
-portfolio data and development-environment files should remain excluded
-through `.gitignore`.
+Rate shocks require duration or explicit rate sensitivity. The system deliberately does not invent equity/crypto responses to interest rates.
 
-## AI Assistance
+The first target-risk method means target **annualised volatility** and proportionally scales the current risky book. It is not yet a full risk-budget optimiser.
 
-This project was designed, developed, tested, and iterated by Samuel Anyan with assistance from ChatGPT (OpenAI) for code development, debugging, architectural review, and documentation.
+Historical risk statistics and scenario outputs are model results, not forecasts or personalised investment advice.
 
-## Status
 
-This is an actively developed portfolio analytics prototype. The current
-repository version is based on **v3.57.5**.
+## v4.2 Copilot router
+
+The AI router now has a strict Python validation boundary before any deterministic portfolio function can execute. It normalises ticker aliases, restricts lookup fields, validates scenario actions against the accepted portfolio, preserves compound action order and separates routing from execution. See `docs/COPILOT_ROUTER.md`.
+
+
+## v4.3 Persistent chat — rebuilt on the verified v4.2 baseline
+
+v4.3 adds conversational context without changing the v4.2 Portfolio State, analytics, or scenario engines. Copilot can distinguish the accepted portfolio from the latest hypothetical scenario, continue a scenario when the user clearly asks to do so, and answer follow-up lookups against the latest scenario. The accepted portfolio remains immutable.
+
+## V4.4 Analytics UX
+
+V4.4 is a presentation-only analytics pass built on the verified V4.3 baseline. It keeps Portfolio State, analytics, scenarios, routing and Copilot execution unchanged while making the dashboard easier to scan:
+
+- compact side-by-side analytics charts
+- holdings and risk-contribution visuals with explanations directly underneath
+- a larger correlation grid beside portfolio exposure
+- grouped risk commentary for volatility and historical VaR
+- explicit accepted-portfolio labelling
+- visually separated hypothetical scenario results
+- accepted-vs-scenario and position-level comparison charts derived only from scenario-engine output
+- scenario tables moved into expanders to reduce vertical length
+
+No financial calculation is performed in the UI visual builders.
+
+## V4.5 — Historical Combination Risk
+
+V4.5 adds deterministic historical combination-risk analysis to the existing analytics engine.
+
+- Every portfolio ticker is considered for historical-data eligibility.
+- Eligible tickers are selected by default; unavailable tickers are explicitly reported.
+- The analyst can narrow the universe without changing the accepted Portfolio State.
+- Combinations use equal weights so the analysis isolates asset grouping from weight optimisation.
+- Metrics: annual volatility, maximum drawdown, historical VaR, Expected Shortfall and annual return context.
+- Pair analysis renders as a risk heatmap; larger groups render as ranked combinations.
+- Copilot receives the deterministic `combination_risk` dictionary and explains it; the LLM does not calculate risk.
+- A 100,000-combination safety limit prevents accidental combinatorial explosions. The UI asks the analyst to reduce the selected universe or group size rather than silently sampling combinations.
+- Historical combination results are descriptive, not forecasts.
+
+## v4.5.1 cash-handling hotfix
+
+`CASH` is now a reserved non-market asset. It is excluded from Yahoo Finance latest-price and history requests and is valued at 1.0 per unit in its stated currency. A market quote for a security whose symbol is `CASH` can no longer override an explicit cash holding. Regression tests cover both market-data filtering and Portfolio State valuation.
+
+## v4.5.2 — Dated portfolio performance
+
+Dated holdings now preserve purchase dates and purchase prices during normalisation. Portfolio State converts those supplied acquisitions into accounting events, while transaction-ledger uploads continue to use their explicit executions and cash flows. The analytics engine can reconstruct the dated account path using the same deterministic equity-curve logic. Historical Behaviour remains the current-holdings simulation by default; when dated accounting information exists, **View your actual portfolio performance** switches the existing growth and drawdown charts to the reconstructed dated path. A holdings snapshot is labelled as reconstructed because it cannot reveal previously sold positions or unsupplied historical cash flows.
+
+### v4.5.3 — Accounting-led dated performance
+Dated holdings are reconstructed through the accounting path: each current position enters on its supplied purchase date at its supplied purchase price, inferred acquisition funding is recorded as an external contribution, and cash-flow-adjusted returns prevent new capital from being mistaken for investment performance. Transaction ledgers continue to use supplied execution prices and dated cash flows. The existing historical simulation remains the default and the UI toggle switches the existing growth/drawdown charts to the reconstructed account path.
+
+### Dated holdings reconstruction
+
+For a holdings snapshot with purchase dates, the actual-performance view is a reconstruction of the **currently held positions**, not a synthetic transaction ledger. A position is absent before its supplied purchase date and is valued thereafter using historical market prices and historical FX converted to USD. The supplied purchase price remains cost-basis information. On the entry date, the position's first market mark is treated as an external capital addition for return chaining, preventing a difference between execution price and daily close from becoming a fake investment return. The reconstructed value chart shows account market value; return, volatility, Sharpe and drawdown use the separate cash-flow-adjusted performance series. Previously sold positions and unknown historical cash movements cannot be inferred from a holdings snapshot.

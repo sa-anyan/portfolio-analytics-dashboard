@@ -1,0 +1,6 @@
+Date,Type,Ticker,Quantity,Price,Fees,Amount,Asset Class,Duration
+2026-01-02,DEPOSIT,,,,,10000,,
+2026-01-03,BUY,NVDA,20,125,2,,Equity,
+2026-01-04,SELL,BTC,0.5,95000,5,,Crypto,
+2026-02-01,BUY,BTC,0.1,85000,2,,Crypto,
+2026-02-15,BUY,BOND,30,100,1,,Fixed Income,5

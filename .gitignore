@@ -1,36 +1,7 @@
-# Python
+.venv/
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# IDE / OS
-.idea/
-.vscode/
 .DS_Store
-
-# Streamlit secrets
+.pytest_cache/
 .streamlit/secrets.toml
-
-# Local user data / portfolio exports
-*.csv
-*.xlsx
-*.xls
-*.parquet
-*.feather
-
-# Logs / temporary files
-*.log
-*.tmp
-*.swp
-!validation_outputs/*.csv
-!tests/fixtures/*.csv
-!tests/fixtures/*.xlsx
-!tests/fixtures/*.xls
+.env

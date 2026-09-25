@@ -1,0 +1,5 @@
+Ticker,Quantity,Average Entry Price,Current Price,Asset Class,Duration,Rate Sensitivity
+NVDA,20,125,140,Equity,,
+BTC,-0.5,95000,90000,Crypto,,
+GLD,15,210,220,Commodity,,
+BOND,30,100,98,Fixed Income,5,
