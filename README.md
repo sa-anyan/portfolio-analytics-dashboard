@@ -1,8 +1,8 @@
-# Portfolio Analytics v4.3
+# Portfolio Analytics
 
 A clean rebuild of the portfolio analytics dashboard around one deterministic portfolio state and an AI Copilot connected to every analytical stage.
 
-## What v4 does
+## What it does
 
 - CSV/XLSX portfolio upload
 - Manual holdings entry
@@ -75,18 +75,18 @@ The first target-risk method means target **annualised volatility** and proporti
 Historical risk statistics and scenario outputs are model results, not forecasts or personalised investment advice.
 
 
-## v4.2 Copilot router
+## Copilot Router
 
-The AI router now has a strict Python validation boundary before any deterministic portfolio function can execute. It normalises ticker aliases, restricts lookup fields, validates scenario actions against the accepted portfolio, preserves compound action order and separates routing from execution. See `docs/COPILOT_ROUTER.md`.
+The AI router has a strict Python validation boundary before any deterministic portfolio function can execute. It normalises ticker aliases, restricts lookup fields, validates scenario actions against the accepted portfolio, preserves compound action order and separates routing from execution. See `docs/COPILOT_ROUTER.md`.
 
 
-## v4.3 Persistent chat — rebuilt on the verified v4.2 baseline
+## Persistent Chat
 
-v4.3 adds conversational context without changing the v4.2 Portfolio State, analytics, or scenario engines. Copilot can distinguish the accepted portfolio from the latest hypothetical scenario, continue a scenario when the user clearly asks to do so, and answer follow-up lookups against the latest scenario. The accepted portfolio remains immutable.
+Conversational context is supported without changing the Portfolio State, analytics, or scenario engines. Copilot can distinguish the accepted portfolio from the latest hypothetical scenario, continue a scenario when the user clearly asks to do so, and answer follow-up lookups against the latest scenario. The accepted portfolio remains immutable.
 
-## V4.4 Analytics UX
+## Analytics UX
 
-V4.4 is a presentation-only analytics pass built on the verified V4.3 baseline. It keeps Portfolio State, analytics, scenarios, routing and Copilot execution unchanged while making the dashboard easier to scan:
+The analytics interface keeps Portfolio State, analytics, scenarios, routing and Copilot execution separate while making the dashboard easier to scan:
 
 - compact side-by-side analytics charts
 - holdings and risk-contribution visuals with explanations directly underneath
@@ -99,9 +99,9 @@ V4.4 is a presentation-only analytics pass built on the verified V4.3 baseline. 
 
 No financial calculation is performed in the UI visual builders.
 
-## V4.5 — Historical Combination Risk
+## Historical Combination Risk
 
-V4.5 adds deterministic historical combination-risk analysis to the existing analytics engine.
+The analytics engine includes deterministic historical combination-risk analysis.
 
 - Every portfolio ticker is considered for historical-data eligibility.
 - Eligible tickers are selected by default; unavailable tickers are explicitly reported.
@@ -113,15 +113,15 @@ V4.5 adds deterministic historical combination-risk analysis to the existing ana
 - A 100,000-combination safety limit prevents accidental combinatorial explosions. The UI asks the analyst to reduce the selected universe or group size rather than silently sampling combinations.
 - Historical combination results are descriptive, not forecasts.
 
-## v4.5.1 cash-handling hotfix
+## Cash Handling
 
 `CASH` is now a reserved non-market asset. It is excluded from Yahoo Finance latest-price and history requests and is valued at 1.0 per unit in its stated currency. A market quote for a security whose symbol is `CASH` can no longer override an explicit cash holding. Regression tests cover both market-data filtering and Portfolio State valuation.
 
-## v4.5.2 — Dated portfolio performance
+## Dated Portfolio Performance
 
 Dated holdings now preserve purchase dates and purchase prices during normalisation. Portfolio State converts those supplied acquisitions into accounting events, while transaction-ledger uploads continue to use their explicit executions and cash flows. The analytics engine can reconstruct the dated account path using the same deterministic equity-curve logic. Historical Behaviour remains the current-holdings simulation by default; when dated accounting information exists, **View your actual portfolio performance** switches the existing growth and drawdown charts to the reconstructed dated path. A holdings snapshot is labelled as reconstructed because it cannot reveal previously sold positions or unsupplied historical cash flows.
 
-### v4.5.3 — Accounting-led dated performance
+### Accounting-led dated performance
 Dated holdings are reconstructed through the accounting path: each current position enters on its supplied purchase date at its supplied purchase price, inferred acquisition funding is recorded as an external contribution, and cash-flow-adjusted returns prevent new capital from being mistaken for investment performance. Transaction ledgers continue to use supplied execution prices and dated cash flows. The existing historical simulation remains the default and the UI toggle switches the existing growth/drawdown charts to the reconstructed account path.
 
 ### Dated holdings reconstruction
