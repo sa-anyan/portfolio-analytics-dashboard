@@ -127,3 +127,84 @@ Dated holdings are reconstructed through the accounting path: each current posit
 ### Dated holdings reconstruction
 
 For a holdings snapshot with purchase dates, the actual-performance view is a reconstruction of the **currently held positions**, not a synthetic transaction ledger. A position is absent before its supplied purchase date and is valued thereafter using historical market prices and historical FX converted to USD. The supplied purchase price remains cost-basis information. On the entry date, the position's first market mark is treated as an external capital addition for return chaining, preventing a difference between execution price and daily close from becoming a fake investment return. The reconstructed value chart shows account market value; return, volatility, Sharpe and drawdown use the separate cash-flow-adjusted performance series. Previously sold positions and unknown historical cash movements cannot be inferred from a holdings snapshot.
+
+
+## Design Decisions, Assumptions & Limitations
+
+Real portfolio files are rarely standardised. They can differ in column names, date formats, currencies, ticker conventions, price fields and whether they represent current holdings or a transaction history. The application therefore normalises common structures into one Portfolio State before running any analytics.
+
+A core design principle is:
+
+> When information cannot be reconstructed from the supplied portfolio, the system exposes the limitation rather than manufacturing historical information.
+
+### Holdings snapshots are not transaction histories
+
+A holdings snapshot tells the system what the investor currently owns. Purchase dates and purchase prices provide additional accounting context, but they do not reveal the complete history of the account.
+
+Unless explicitly supplied, the system cannot determine:
+
+- positions that were previously bought and fully sold
+- historical dividends or other distributions
+- deposits and withdrawals
+- trading fees, taxes or other charges
+- historical changes in the cash balance
+- stock splits or other corporate actions not represented in the data
+- transactions that occurred before the current holdings were acquired
+
+For this reason, dated-holdings performance is labelled as a **reconstruction of the currently held positions**, rather than a complete historical account record.
+
+A transaction ledger can provide a more complete reconstruction because BUY, SELL, DIVIDEND, TRANSFER and other supplied cash-flow events can be processed explicitly.
+
+### Portfolio value vs investment performance
+
+These are deliberately treated as different concepts.
+
+**Reconstructed Portfolio Value** shows the market value of the supplied positions as they enter and move through time.
+
+**Investment Performance** measures how invested capital performed while separating the mechanical effect of adding new capital.
+
+Position entry is therefore treated as an external capital addition when chaining returns. This prevents a new purchase from appearing as investment performance simply because portfolio value increased.
+
+### Purchase prices and historical market prices
+
+The supplied purchase price is retained as accounting and cost-basis information.
+
+Historical portfolio valuation uses available daily market prices. Because daily data generally represents market closes, the historical close on a purchase date may differ from the investor's actual execution price. The system does not treat that difference as an investment gain or loss on entry.
+
+The reconstruction operates at daily resolution and does not attempt to recreate intraday portfolio movements.
+
+### Cash
+
+Explicit cash is separated from securities so it does not create artificial market exposure.
+
+For a holdings snapshot, today's cash balance does not reveal when that cash entered the portfolio or how it changed historically. The system therefore cannot infer historical deposits, withdrawals or cash movements that are absent from the supplied data.
+
+A transaction ledger containing dated cash flows provides a stronger basis for historical cash reconstruction.
+
+### Currency and FX
+
+Portfolio reporting uses USD as the analytical base currency.
+
+Securities may trade in USD, GBP, EUR or other quote currencies. Historical reconstruction therefore uses available currency information and FX data when converting market values into the common reporting currency.
+
+Where currency information is missing or ambiguous, the application should surface or document the assumption rather than imply that the original file contained information it did not provide.
+
+Ticker and listing ambiguity can also affect currency interpretation because the same company may trade through different listings.
+
+### Historical analytics
+
+Historical volatility, VaR, Expected Shortfall, drawdown, correlation, Combination Risk and historical attribution describe behaviour observed in the available historical data.
+
+They are not forecasts of future returns or losses.
+
+Historical attribution is calculated deterministically from the reconstructed portfolio data available to the analytics engine. Its interpretation is therefore subject to the same holdings-history, cash-flow and data-availability limitations described above.
+
+### AI Copilot
+
+The Copilot does not independently calculate portfolio metrics.
+
+Its role is to interpret the user's question, route validated requests to deterministic Python functions and explain the resulting calculations:
+
+> AI interprets → Python validates/calculates → AI explains.
+
+Portfolio valuation, P&L, exposure, risk, scenarios and historical analytics remain reproducible Python calculations rather than LLM-generated estimates.
