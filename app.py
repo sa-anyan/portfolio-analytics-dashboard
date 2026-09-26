@@ -11,6 +11,8 @@ inside the package engines.
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -62,6 +64,7 @@ for key, default in {
     "copilot_insights": None,
     "copilot_messages": [],
     "latest_scenario": None,
+    "copilot_uses": 0,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -116,6 +119,22 @@ def get_api_key() -> str | None:
         return None
 
 
+COPILOT_SESSION_LIMIT = 5
+
+
+@st.cache_data(show_spinner=False)
+def demo_transaction_workbook() -> bytes:
+    """Build the public Excel demo from the synthetic transaction dataset."""
+    examples = Path(__file__).resolve().parent / "examples"
+    transactions = pd.read_csv(examples / "demo_transactions.csv")
+    cashflows = pd.read_csv(examples / "demo_cashflows.csv")
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        transactions.to_excel(writer, sheet_name="Transactions", index=False)
+        cashflows.to_excel(writer, sheet_name="Cashflows", index=False)
+    return buffer.getvalue()
+
+
 #______________________________________________________________________________
 # CACHED MARKET DATA
 #______________________________________________________________________________
@@ -151,15 +170,17 @@ with copilot_col:
     st.subheader("AI Copilot")
     st.caption("Connected to parser, Portfolio State, analytics and scenario functions. Python calculates; Copilot interprets and explains.")
     if api_key:
+        remaining = max(0, COPILOT_SESSION_LIMIT - int(st.session_state.copilot_uses))
         st.success("Copilot connected", icon="✅")
+        st.caption(f"Public demo allowance: {remaining} of {COPILOT_SESSION_LIMIT} AI questions remaining this session.")
     else:
         st.info("Add `OPENAI_API_KEY` to Streamlit secrets to enable Copilot. The deterministic dashboard still works without it.")
 
     auto_ai_insights = st.toggle(
         "Automatic Copilot captions",
-        value=bool(api_key),
-        disabled=not bool(api_key),
-        help="Generates short AI explanations after analysis. Disable this to minimise API calls.",
+        value=False,
+        disabled=True,
+        help="Disabled in the public demo so the AI allowance is reserved for questions you choose to ask.",
     )
 
     if st.session_state.portfolio_state is not None:
@@ -180,10 +201,15 @@ with copilot_col:
                 "Target 10% annual volatility."
             ),
             height=135,
+            max_chars=1000,
             key="copilot_question",
         )
 
-        if st.button("Ask Copilot", type="primary", use_container_width=True):
+        copilot_limit_reached = int(st.session_state.copilot_uses) >= COPILOT_SESSION_LIMIT
+        if copilot_limit_reached:
+            st.info("Demo AI limit reached. Portfolio analytics remain fully available.")
+
+        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=copilot_limit_reached):
             if not api_key:
                 st.error("Copilot needs an OpenAI API key.")
             elif question.strip():
@@ -200,6 +226,7 @@ with copilot_col:
                             api_key=api_key,
                         )
                     st.session_state.copilot_messages.append({"role": "assistant", "content": response["answer"]})
+                    st.session_state.copilot_uses += 1
                     if response.get("scenario") is not None:
                         st.session_state.latest_scenario = response["scenario"]
                     st.rerun()
@@ -250,6 +277,25 @@ with main_col:
             type=["csv", "xlsx"],
             help="The parser classifies holdings vs ledger and normalises it before anything reaches Portfolio State.",
         )
+        st.caption("No portfolio file? Download one of the synthetic demo datasets below, then upload it above.")
+        demo_col1, demo_col2 = st.columns(2)
+        examples_dir = Path(__file__).resolve().parent / "examples"
+        with demo_col1:
+            st.download_button(
+                "Download demo holdings (CSV)",
+                data=(examples_dir / "demo_portfolio_holdings.csv").read_bytes(),
+                file_name="portfolio_demo_holdings.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with demo_col2:
+            st.download_button(
+                "Download demo transactions (Excel)",
+                data=demo_transaction_workbook(),
+                file_name="portfolio_demo_transactions.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
     else:
         st.caption("Enter holdings directly. Positive quantity = long; negative quantity = short. Entry price and current price are optional when live valuation is enabled.")
         manual_frame = st.data_editor(
