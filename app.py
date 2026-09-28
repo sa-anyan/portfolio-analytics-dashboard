@@ -192,12 +192,12 @@ with copilot_col:
             "Ask anything about the portfolio",
             placeholder=(
                 "Examples:\n"
-                "How much BTC do I have?\n"
+                "Which holdings have the largest weights?\n"
                 "Why is my VaR high?\n"
                 "What caused my drawdown in 2020?\n"
                 "Which ticker contributed most to that drawdown?\n"
-                "What if BTC falls 25%?\n"
-                "What if rates rise 100 bps and I halve BTC?\n"
+                "What if NVDA falls 25%?\n"
+                "What if rates rise 100 bps and I halve NVDA?\n"
                 "Target 10% annual volatility."
             ),
             height=135,
