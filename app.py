@@ -123,15 +123,13 @@ COPILOT_SESSION_LIMIT = 5
 
 
 @st.cache_data(show_spinner=False)
-def demo_transaction_workbook() -> bytes:
-    """Build the public Excel demo from the synthetic transaction dataset."""
+def demo_holdings_workbook() -> bytes:
+    """Build the public Excel demo from the same holdings dataset as the CSV download."""
     examples = Path(__file__).resolve().parent / "examples"
-    transactions = pd.read_csv(examples / "demo_transactions.csv")
-    cashflows = pd.read_csv(examples / "demo_cashflows.csv")
+    holdings = pd.read_csv(examples / "demo_portfolio_holdings.csv")
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        transactions.to_excel(writer, sheet_name="Transactions", index=False)
-        cashflows.to_excel(writer, sheet_name="Cashflows", index=False)
+        holdings.to_excel(writer, sheet_name="Holdings", index=False)
     return buffer.getvalue()
 
 
@@ -290,9 +288,9 @@ with main_col:
             )
         with demo_col2:
             st.download_button(
-                "Download demo transactions (Excel)",
-                data=demo_transaction_workbook(),
-                file_name="portfolio_demo_transactions.xlsx",
+                "Download demo holdings (Excel)",
+                data=demo_holdings_workbook(),
+                file_name="portfolio_demo_holdings.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
