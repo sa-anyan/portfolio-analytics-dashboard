@@ -104,10 +104,33 @@ def money(value: Any, *, compact: bool = False) -> str:
 
 
 def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
-    """Premium KPI: compact headline plus exact value underneath."""
-    st.metric(label, money(value, compact=True), help=help)
-    if value is not None:
-        st.caption(f"Exact · {money(value)}")
+    """Finance-style KPI: readable full value without Streamlit truncation."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = None
+
+    if amount is None:
+        display = "—"
+    elif abs(amount) >= 1_000_000_000:
+        display = f"${amount / 1_000_000_000:,.2f}B"
+    elif abs(amount) >= 1_000_000:
+        display = f"${amount / 1_000_000:,.2f}M"
+    else:
+        display = f"${amount:,.2f}"
+
+    help_attr = f' title="{help}"' if help else ""
+    exact = money(amount) if amount is not None else "—"
+    st.markdown(
+        f"""
+        <div class="pa-finance-kpi"{help_attr}>
+            <div class="pa-finance-kpi-label">{label}</div>
+            <div class="pa-finance-kpi-value">{display}</div>
+            <div class="pa-finance-kpi-exact">{exact}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def percent(value: Any) -> str:
