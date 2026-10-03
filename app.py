@@ -133,6 +133,27 @@ def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
     )
 
 
+def metric_percent(label: str, value: Any, *, help: str | None = None) -> None:
+    """Finance-style percentage KPI matching the monetary summary strip."""
+    try:
+        amount = float(value) * 100.0
+        display = f"{amount:,.2f}%"
+    except (TypeError, ValueError):
+        display = "—"
+
+    help_attr = f' title="{help}"' if help else ""
+    st.markdown(
+        f"""
+        <div class="pa-finance-kpi"{help_attr}>
+            <div class="pa-finance-kpi-label">{label}</div>
+            <div class="pa-finance-kpi-value">{display}</div>
+            <div class="pa-finance-kpi-exact">Portfolio risk metric</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def percent(value: Any) -> str:
     try:
         return f"{float(value) * 100:.2f}%"
@@ -494,6 +515,7 @@ with main_col:
         st.subheader("3. Portfolio Analytics")
         st.markdown('<div class="pa-section-note">Accepted portfolio · deterministic analytics from the current Portfolio State.</div>', unsafe_allow_html=True)
 
+        st.markdown('<div class="pa-kpi-group-label">PORTFOLIO SUMMARY</div>', unsafe_allow_html=True)
         r1 = st.columns(4)
         with r1[0]:
             metric_money("Equity", totals.get("equity"))
@@ -505,13 +527,16 @@ with main_col:
             metric_money("Net Exposure", totals.get("net_exposure"))
         insight_box(insights.get("exposure", ""))
 
+        st.markdown('<div class="pa-kpi-group-label">RISK SNAPSHOT</div>', unsafe_allow_html=True)
         r2 = st.columns(4)
-        r2[0].metric("Annual Volatility", percent(risk.get("annual_volatility")))
+        with r2[0]:
+            metric_percent("Annual Volatility", risk.get("annual_volatility"))
         with r2[1]:
             metric_money("VaR", risk.get("var_value"), help="Historical one-day VaR at the configured confidence level.")
         with r2[2]:
             metric_money("Expected Shortfall", risk.get("expected_shortfall_value"))
-        r2[3].metric("Max Drawdown", percent(perf.get("max_drawdown")))
+        with r2[3]:
+            metric_percent("Max Drawdown", perf.get("max_drawdown"))
 
         risk_caption = " ".join(part for part in [insights.get("volatility", ""), insights.get("var", "")] if part)
         insight_box(risk_caption)
