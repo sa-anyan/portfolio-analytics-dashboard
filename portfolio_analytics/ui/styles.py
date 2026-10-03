@@ -177,6 +177,38 @@ div.stButton > button[kind="primary"] {
 .pa-finance-kpi[data-tone="exposure"] { border-bottom-color: rgba(117,87,168,.48); }
 .pa-finance-kpi[data-tone="exposure"] .pa-finance-kpi-value { color: var(--pa-purple); }
 
+
+.pa-section-header {
+    margin: 1.55rem 0 .85rem;
+    padding: 15px 18px 14px;
+    background: linear-gradient(100deg, #0A3153 0%, #123F64 100%);
+    border-left: 4px solid var(--pa-gold);
+    border-radius: 10px;
+    box-shadow: 0 5px 16px rgba(8,43,76,.08);
+}
+.pa-section-header-eyebrow {
+    color: #E2B95F;
+    font-size: .64rem;
+    font-weight: 780;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+}
+.pa-section-header-title {
+    color: #FFFFFF;
+    font-size: 1.18rem;
+    line-height: 1.2;
+    font-weight: 730;
+    letter-spacing: -.015em;
+}
+.pa-section-header-note {
+    color: #CAD6E0;
+    font-size: .78rem;
+    line-height: 1.45;
+    margin-top: 5px;
+    max-width: 1000px;
+}
+
 @media (max-width: 900px) {
     .pa-finance-kpi { min-height: 82px; }
     .pa-finance-kpi-value { font-size: 1.28rem; }
