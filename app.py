@@ -87,11 +87,27 @@ if "manual_rows" not in st.session_state:
 # PRESENTATION HELPERS
 #______________________________________________________________________________
 
-def money(value: Any) -> str:
+def money(value: Any, *, compact: bool = False) -> str:
     try:
-        return f"${float(value):,.2f}"
+        amount = float(value)
+        if compact:
+            absolute = abs(amount)
+            if absolute >= 1_000_000_000:
+                return f"${amount / 1_000_000_000:,.2f}B"
+            if absolute >= 1_000_000:
+                return f"${amount / 1_000_000:,.2f}M"
+            if absolute >= 1_000:
+                return f"${amount / 1_000:,.1f}K"
+        return f"${amount:,.2f}"
     except (TypeError, ValueError):
         return "—"
+
+
+def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
+    """Premium KPI: compact headline plus exact value underneath."""
+    st.metric(label, money(value, compact=True), help=help)
+    if value is not None:
+        st.caption(f"Exact · {money(value)}")
 
 
 def percent(value: Any) -> str:
@@ -456,16 +472,22 @@ with main_col:
         st.markdown('<div class="pa-section-note">Accepted portfolio · deterministic analytics from the current Portfolio State.</div>', unsafe_allow_html=True)
 
         r1 = st.columns(4)
-        r1[0].metric("Equity", money(totals.get("equity")))
-        r1[1].metric("Cash", money(totals.get("cash")))
-        r1[2].metric("Gross Exposure", money(totals.get("gross_exposure")))
-        r1[3].metric("Net Exposure", money(totals.get("net_exposure")))
+        with r1[0]:
+            metric_money("Equity", totals.get("equity"))
+        with r1[1]:
+            metric_money("Cash", totals.get("cash"))
+        with r1[2]:
+            metric_money("Gross Exposure", totals.get("gross_exposure"))
+        with r1[3]:
+            metric_money("Net Exposure", totals.get("net_exposure"))
         insight_box(insights.get("exposure", ""))
 
         r2 = st.columns(4)
         r2[0].metric("Annual Volatility", percent(risk.get("annual_volatility")))
-        r2[1].metric("VaR", money(risk.get("var_value")), help="Historical one-day VaR at the configured confidence level.")
-        r2[2].metric("Expected Shortfall", money(risk.get("expected_shortfall_value")))
+        with r2[1]:
+            metric_money("VaR", risk.get("var_value"), help="Historical one-day VaR at the configured confidence level.")
+        with r2[2]:
+            metric_money("Expected Shortfall", risk.get("expected_shortfall_value"))
         r2[3].metric("Max Drawdown", percent(perf.get("max_drawdown")))
 
         risk_caption = " ".join(part for part in [insights.get("volatility", ""), insights.get("var", "")] if part)
