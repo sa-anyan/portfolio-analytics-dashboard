@@ -26,7 +26,12 @@ def _layout(fig: go.Figure, title: str) -> go.Figure:
         legend_title_text="",
         height=340,
         hoverlabel=dict(font_size=12),
+        font=dict(family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", color="#33465B"),
+        title_font=dict(size=16, color="#14283F"),
+        hovermode="closest",
     )
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#E8E4DB", tickfont=dict(color="#6D7785"))
+    fig.update_yaxes(gridcolor="#EEEAE2", zeroline=False, linecolor="#E8E4DB", tickfont=dict(color="#6D7785"))
     return fig
 
 
@@ -100,7 +105,7 @@ def performance_figure(analytics: dict[str, Any]) -> go.Figure:
         return _layout(go.Figure(), "Portfolio Growth")
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["Growth of 1"] = 1.0 + pd.to_numeric(frame["cumulative_return"], errors="coerce")
-    fig = px.line(frame, x="date", y="Growth of 1")
+    fig = px.area(frame, x="date", y="Growth of 1")
     fig.update_traces(hovertemplate="%{x|%d %b %Y}<br>Growth of 1: %{y:.3f}<extra></extra>")
     fig.update_yaxes(title="Growth of 1")
     fig.update_xaxes(title="")
@@ -115,7 +120,7 @@ def reconstructed_value_figure(actual: dict[str, Any]) -> go.Figure:
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["Portfolio Value"] = pd.to_numeric(frame["equity"], errors="coerce")
     base = str(actual.get("base_currency") or "USD").upper()
-    fig = px.line(frame, x="date", y="Portfolio Value")
+    fig = px.area(frame, x="date", y="Portfolio Value")
     fig.update_traces(hovertemplate=f"%{{x|%d %b %Y}}<br>Portfolio value: %{{y:,.2f}} {base}<extra></extra>")
     fig.update_yaxes(title=f"Portfolio value ({base})")
     fig.update_xaxes(title="")
