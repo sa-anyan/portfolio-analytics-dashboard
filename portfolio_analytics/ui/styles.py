@@ -15,6 +15,14 @@ APP_CSS = """
     --pa-line: #E5E1D8;
     --pa-text: #14283F;
     --pa-muted: #6D7785;
+    --pa-green: #16835D;
+    --pa-green-soft: #EAF6F0;
+    --pa-red: #C84A54;
+    --pa-red-soft: #FCEDEF;
+    --pa-blue: #2D6FA3;
+    --pa-blue-soft: #EDF5FB;
+    --pa-purple: #7557A8;
+    --pa-purple-soft: #F3EFF9;
 }
 html, body, [class*="css"] {
     font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -147,7 +155,7 @@ div.stButton > button[kind="primary"] {
     margin-bottom: 4px;
 }
 .pa-finance-kpi-value {
-    color: #14283F;
+    color: var(--pa-navy);
     font-size: clamp(1.32rem, 2vw, 1.85rem);
     line-height: 1.08;
     font-weight: 760;
@@ -160,6 +168,15 @@ div.stButton > button[kind="primary"] {
     margin-top: 6px;
     white-space: nowrap;
 }
+.pa-finance-kpi[data-tone="positive"] { border-bottom-color: rgba(22,131,93,.55); }
+.pa-finance-kpi[data-tone="positive"] .pa-finance-kpi-value { color: var(--pa-green); }
+.pa-finance-kpi[data-tone="risk"] { border-bottom-color: rgba(200,74,84,.52); }
+.pa-finance-kpi[data-tone="risk"] .pa-finance-kpi-value { color: var(--pa-red); }
+.pa-finance-kpi[data-tone="liquidity"] { border-bottom-color: rgba(45,111,163,.50); }
+.pa-finance-kpi[data-tone="liquidity"] .pa-finance-kpi-value { color: var(--pa-blue); }
+.pa-finance-kpi[data-tone="exposure"] { border-bottom-color: rgba(117,87,168,.48); }
+.pa-finance-kpi[data-tone="exposure"] .pa-finance-kpi-value { color: var(--pa-purple); }
+
 @media (max-width: 900px) {
     .pa-finance-kpi { min-height: 82px; }
     .pa-finance-kpi-value { font-size: 1.28rem; }
