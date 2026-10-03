@@ -13,6 +13,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
+NAVY = "#123A5A"
+GOLD = "#C99A35"
+GREEN = "#16835D"
+RED = "#C84A54"
+BLUE = "#2D6FA3"
+PURPLE = "#7557A8"
+PREMIUM_SEQUENCE = [NAVY, GOLD, GREEN, BLUE, PURPLE, RED, "#5D7185", "#A87942"]
+
+
 #______________________________________________________________________________
 # SHARED LAYOUT
 #______________________________________________________________________________
@@ -24,6 +33,7 @@ def _layout(fig: go.Figure, title: str) -> go.Figure:
         paper_bgcolor="white",
         plot_bgcolor="white",
         legend_title_text="",
+        colorway=PREMIUM_SEQUENCE,
         height=340,
         hoverlabel=dict(font_size=12),
         font=dict(family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", color="#33465B"),
@@ -105,7 +115,7 @@ def performance_figure(analytics: dict[str, Any]) -> go.Figure:
         return _layout(go.Figure(), "Portfolio Growth")
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["Growth of 1"] = 1.0 + pd.to_numeric(frame["cumulative_return"], errors="coerce")
-    fig = px.area(frame, x="date", y="Growth of 1")
+    fig = px.area(frame, x="date", y="Growth of 1", color_discrete_sequence=[GREEN])
     fig.update_traces(hovertemplate="%{x|%d %b %Y}<br>Growth of 1: %{y:.3f}<extra></extra>")
     fig.update_yaxes(title="Growth of 1")
     fig.update_xaxes(title="")
@@ -120,7 +130,7 @@ def reconstructed_value_figure(actual: dict[str, Any]) -> go.Figure:
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["Portfolio Value"] = pd.to_numeric(frame["equity"], errors="coerce")
     base = str(actual.get("base_currency") or "USD").upper()
-    fig = px.area(frame, x="date", y="Portfolio Value")
+    fig = px.area(frame, x="date", y="Portfolio Value", color_discrete_sequence=[GREEN])
     fig.update_traces(hovertemplate=f"%{{x|%d %b %Y}}<br>Portfolio value: %{{y:,.2f}} {base}<extra></extra>")
     fig.update_yaxes(title=f"Portfolio value ({base})")
     fig.update_xaxes(title="")
@@ -134,7 +144,7 @@ def drawdown_figure(analytics: dict[str, Any]) -> go.Figure:
         return _layout(go.Figure(), "Drawdown")
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["Drawdown %"] = pd.to_numeric(frame["drawdown"], errors="coerce") * 100.0
-    fig = px.area(frame, x="date", y="Drawdown %")
+    fig = px.area(frame, x="date", y="Drawdown %", color_discrete_sequence=[RED])
     fig.update_traces(hovertemplate="%{x|%d %b %Y}<br>Drawdown: %{y:.2f}%<extra></extra>")
     fig.update_xaxes(title="")
     return _layout(fig, "Drawdown")
@@ -156,7 +166,7 @@ def exposure_bar(analytics: dict[str, Any]) -> go.Figure:
         ],
     })
     data["Value"] = pd.to_numeric(data["Value"], errors="coerce").fillna(0.0)
-    fig = px.bar(data, x="Measure", y="Value")
+    fig = px.bar(data, x="Measure", y="Value", color="Measure", color_discrete_map={"Long": GREEN, "Short": RED, "Gross": PURPLE, "Net": BLUE})
     fig.update_traces(hovertemplate="%{x}: %{y:,.2f}<extra></extra>")
     fig.update_yaxes(title="Value")
     return _layout(fig, "Portfolio Exposure")
@@ -186,7 +196,7 @@ def scenario_comparison_bar(scenario: dict[str, Any]) -> go.Figure:
     if data.empty:
         return _layout(go.Figure(), "Accepted vs Scenario")
 
-    fig = px.bar(data, x="Measure", y="Value", color="Portfolio", barmode="group")
+    fig = px.bar(data, x="Measure", y="Value", color="Portfolio", barmode="group", color_discrete_map={"Accepted": NAVY, "Scenario": GOLD})
     fig.update_traces(hovertemplate="%{x}<br>%{fullData.name}: %{y:,.2f}<extra></extra>")
     fig.update_yaxes(title="Value")
     return _layout(fig, "Accepted vs Scenario")
@@ -205,7 +215,7 @@ def scenario_position_change_bar(scenario: dict[str, Any]) -> go.Figure:
     tidy = data[["ticker", "Accepted", "Scenario"]].melt(
         id_vars="ticker", var_name="Portfolio", value_name="Value"
     ).dropna(subset=["Value"])
-    fig = px.bar(tidy, x="ticker", y="Value", color="Portfolio", barmode="group")
+    fig = px.bar(tidy, x="ticker", y="Value", color="Portfolio", barmode="group", color_discrete_map={"Accepted": NAVY, "Scenario": GOLD})
     fig.update_traces(hovertemplate="%{x}<br>%{fullData.name}: %{y:,.2f}<extra></extra>")
     fig.update_xaxes(title="")
     fig.update_yaxes(title="Signed market value")
