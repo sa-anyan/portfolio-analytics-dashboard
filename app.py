@@ -154,6 +154,21 @@ def metric_percent(label: str, value: Any, *, help: str | None = None, tone: str
     )
 
 
+def inline_stat(label: str, value: str, *, tone: str = "neutral", detail: str = "") -> None:
+    """Compact finance statistic without Streamlit's oversized metric card."""
+    detail_html = f'<div class="pa-inline-stat-detail">{detail}</div>' if detail else ""
+    st.markdown(
+        f"""
+        <div class="pa-inline-stat" data-tone="{tone}">
+            <div class="pa-inline-stat-label">{label}</div>
+            <div class="pa-inline-stat-value">{value}</div>
+            {detail_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def percent(value: Any) -> str:
     try:
         return f"{float(value) * 100:.2f}%"
@@ -479,10 +494,15 @@ with main_col:
         st.divider()
         st.subheader("2. Parser & Portfolio State")
         a, b, c, d = st.columns(4)
-        a.metric("Detected path", str(parsed.get("classification", "")).title())
-        b.metric("Parser confidence", percent(parsed.get("confidence")))
-        c.metric("Open positions", number(state.get("totals", {}).get("position_count"), 0))
-        d.metric("Missing prices", number(len(state.get("meta", {}).get("missing_prices", [])), 0))
+        with a:
+            inline_stat("Detected path", str(parsed.get("classification", "")).title(), tone="gold")
+        with b:
+            inline_stat("Parser confidence", percent(parsed.get("confidence")), tone="positive")
+        with c:
+            inline_stat("Open positions", number(state.get("totals", {}).get("position_count"), 0), tone="neutral")
+        with d:
+            missing_count = len(state.get("meta", {}).get("missing_prices", []))
+            inline_stat("Missing prices", number(missing_count, 0), tone="positive" if missing_count == 0 else "risk")
 
         if parsed.get("issues"):
             with st.expander(f"Parser review items ({len(parsed['issues'])})"):
@@ -710,8 +730,19 @@ with main_col:
                 summary_cols = st.columns(4)
                 for col, (label, row, field) in zip(summary_cols, summaries):
                     if row:
-                        col.metric(label, percent(row.get(field)), help=row.get("label"))
-                        col.caption(row.get("label", ""))
+                        horizon = {
+                            "annual_volatility": "Annualised · daily returns",
+                            "max_drawdown": "Selected history",
+                            "var_pct": "1-day · 95%",
+                            "expected_shortfall_pct": "1-day · 95%",
+                        }.get(field, "")
+                        with col:
+                            inline_stat(
+                                label,
+                                percent(row.get(field)),
+                                tone="risk",
+                                detail=f"{row.get('label', '')} · {horizon}" if horizon else row.get("label", ""),
+                            )
 
                 with st.expander(f"All evaluated combinations ({combination_risk.get('evaluated_count', 0):,})"):
                     result_df = pd.DataFrame(combination_risk.get("results", []))
