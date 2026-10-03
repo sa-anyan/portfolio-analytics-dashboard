@@ -492,7 +492,11 @@ with main_col:
         insights = st.session_state.copilot_insights or fallback_insights(state, analytics)
 
         st.divider()
-        st.subheader("2. Parser & Portfolio State")
+        section_header(
+            "Parser & Portfolio State",
+            "DATA QUALITY & ENGINE INPUT",
+            "Review what the engine detected, data confidence and the accepted portfolio state before analysis.",
+        )
         a, b, c, d = st.columns(4)
         with a:
             inline_stat("Detected path", str(parsed.get("classification", "")).title(), tone="gold")
