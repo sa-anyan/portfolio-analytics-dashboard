@@ -41,13 +41,13 @@ html, body, [class*="css"] {
 .pa-hero p { color: #F0C96B !important; margin: 7px 0 0; font-size: .96rem; font-weight: 520; }
 h1, h2, h3, h4 { color: #1C2C40 !important; letter-spacing: -.018em; }
 [data-testid="stMetric"] {
-    background: linear-gradient(180deg, #FFFFFF 0%, #FCFBF8 100%);
-    border: 1px solid #E1DDD3;
-    border-top: 2px solid rgba(201,154,53,.72);
-    border-radius: 14px;
-    padding: 14px 16px 12px;
-    box-shadow: 0 7px 22px rgba(8,43,76,.055);
-    min-height: 108px;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid rgba(201,154,53,.55);
+    border-radius: 0;
+    padding: 5px 8px 9px 0;
+    box-shadow: none;
+    min-height: 68px;
     overflow: visible;
 }
 [data-testid="stMetricLabel"] {
@@ -177,6 +177,39 @@ div.stButton > button[kind="primary"] {
 .pa-finance-kpi[data-tone="exposure"] { border-bottom-color: rgba(117,87,168,.48); }
 .pa-finance-kpi[data-tone="exposure"] .pa-finance-kpi-value { color: var(--pa-purple); }
 
+
+
+.pa-inline-stat {
+    min-height: 68px;
+    padding: 5px 10px 9px 0;
+    border-bottom: 2px solid #DDD8CF;
+}
+.pa-inline-stat-label {
+    color: #697587;
+    font-size: .74rem;
+    font-weight: 650;
+    margin-bottom: 3px;
+}
+.pa-inline-stat-value {
+    color: var(--pa-navy);
+    font-size: clamp(1.08rem, 1.65vw, 1.45rem);
+    line-height: 1.1;
+    font-weight: 760;
+    letter-spacing: -.025em;
+    white-space: nowrap;
+}
+.pa-inline-stat-detail {
+    color: #7B8490;
+    font-size: .66rem;
+    line-height: 1.35;
+    margin-top: 5px;
+}
+.pa-inline-stat[data-tone="positive"] { border-bottom-color: rgba(22,131,93,.58); }
+.pa-inline-stat[data-tone="positive"] .pa-inline-stat-value { color: var(--pa-green); }
+.pa-inline-stat[data-tone="risk"] { border-bottom-color: rgba(200,74,84,.56); }
+.pa-inline-stat[data-tone="risk"] .pa-inline-stat-value { color: var(--pa-red); }
+.pa-inline-stat[data-tone="gold"] { border-bottom-color: rgba(201,154,53,.72); }
+.pa-inline-stat[data-tone="gold"] .pa-inline-stat-value { color: #8A6722; }
 
 .pa-section-header {
     margin: 1.55rem 0 .85rem;
