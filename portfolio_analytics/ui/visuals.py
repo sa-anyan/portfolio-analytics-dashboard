@@ -96,23 +96,26 @@ def risk_contribution_donut(analytics: dict[str, Any]) -> go.Figure:
 #______________________________________________________________________________
 
 def correlation_heatmap(analytics: dict[str, Any]) -> go.Figure:
+    """Render correlation with Plotly Express for broad version compatibility."""
     corr = analytics.get("correlation", {})
     if not corr:
         return _layout(go.Figure(), "Correlation")
+
     frame = pd.DataFrame(corr).T
     frame = frame.apply(pd.to_numeric, errors="coerce")
-    fig = go.Figure(data=go.Heatmap(
-        z=frame.values,
-        x=frame.columns,
-        y=frame.index,
+
+    fig = px.imshow(
+        frame,
         zmin=-1,
         zmax=1,
-        colorscale="RdBu",
-        reversescale=True,
-        text=frame.round(2).astype(str).values,
-        texttemplate="%{text}",
-        hovertemplate="%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>",
-    ))
+        color_continuous_scale="RdBu_r",
+        aspect="auto",
+        text_auto=".2f",
+    )
+    fig.update_traces(
+        hovertemplate="%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>"
+    )
+    fig.update_coloraxes(showscale=True)
     return _layout(fig, "Correlation Grid")
 
 
