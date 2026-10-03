@@ -501,16 +501,23 @@ with main_col:
 
         positions = pd.DataFrame(state.get("positions", []))
         if not positions.empty:
-            st.markdown("**Current Portfolio State**")
-            display_cols = [
-                "ticker", "side", "quantity", "average_entry_price", "current_price",
-                "signed_market_value", "exposure", "realised_pnl", "unrealised_pnl",
-            ]
-            st.dataframe(
-                positions[[col for col in display_cols if col in positions.columns]],
-                use_container_width=True,
-                hide_index=True,
-            )
+            with st.expander(
+                f"Current Portfolio State · {len(positions)} positions",
+                expanded=False,
+            ):
+                st.caption(
+                    "Accepted positions used by the analytics engine. "
+                    "Expand only when you want to inspect position-level detail."
+                )
+                display_cols = [
+                    "ticker", "side", "quantity", "average_entry_price", "current_price",
+                    "signed_market_value", "exposure", "realised_pnl", "unrealised_pnl",
+                ]
+                st.dataframe(
+                    positions[[col for col in display_cols if col in positions.columns]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
 
 #______________________________________________________________________________
