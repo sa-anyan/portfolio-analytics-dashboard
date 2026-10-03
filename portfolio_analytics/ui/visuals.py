@@ -13,13 +13,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-NAVY = "#123A5A"
-GOLD = "#C99A35"
-GREEN = "#16835D"
-RED = "#C84A54"
-BLUE = "#2D6FA3"
-PURPLE = "#7557A8"
-PREMIUM_SEQUENCE = [NAVY, GOLD, GREEN, BLUE, PURPLE, RED, "#5D7185", "#A87942"]
+NAVY = "#61A7FF"
+GOLD = "#D7B768"
+GREEN = "#2FD094"
+RED = "#FF6577"
+BLUE = "#61A7FF"
+PURPLE = "#A78BFA"
+CYAN = "#46D4D8"
+CREAM = "#F5F0E6"
+MUTED = "#94A3B8"
+PANEL = "#0A1C2D"
+PANEL_2 = "#0E2438"
+GRID = "#20384F"
+PREMIUM_SEQUENCE = [GOLD, BLUE, GREEN, PURPLE, CYAN, "#F5A65B", RED, "#7C91A8"]
 
 
 #______________________________________________________________________________
@@ -28,20 +34,27 @@ PREMIUM_SEQUENCE = [NAVY, GOLD, GREEN, BLUE, PURPLE, RED, "#5D7185", "#A87942"]
 
 def _layout(fig: go.Figure, title: str) -> go.Figure:
     fig.update_layout(
-        title={"text": title, "x": 0.02, "xanchor": "left"},
-        margin=dict(l=35, r=25, t=58, b=35),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        title={"text": f"<b>{title}</b>", "x": 0.02, "xanchor": "left"},
+        margin=dict(l=38, r=28, t=62, b=38),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,28,45,.72)",
         legend_title_text="",
         colorway=PREMIUM_SEQUENCE,
-        height=340,
-        hoverlabel=dict(font_size=12),
-        font=dict(family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", color="#33465B"),
-        title_font=dict(size=16, color="#14283F"),
+        height=350,
+        hoverlabel=dict(bgcolor=PANEL_2, bordercolor=GRID, font=dict(size=12, color=CREAM)),
+        font=dict(family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", color="#B9C5D1"),
+        title_font=dict(size=16, color=CREAM),
         hovermode="closest",
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#AFC0D1")),
     )
-    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#E8E4DB", tickfont=dict(color="#6D7785"))
-    fig.update_yaxes(gridcolor="#EEEAE2", zeroline=False, linecolor="#E8E4DB", tickfont=dict(color="#6D7785"))
+    fig.update_xaxes(
+        showgrid=False, zeroline=False, linecolor=GRID,
+        tickfont=dict(color="#8FA2B6"), title_font=dict(color="#AFC0D1"),
+    )
+    fig.update_yaxes(
+        gridcolor=GRID, gridwidth=.7, zeroline=False, linecolor=GRID,
+        tickfont=dict(color="#8FA2B6"), title_font=dict(color="#AFC0D1"),
+    )
     return fig
 
 
@@ -99,7 +112,7 @@ def correlation_heatmap(analytics: dict[str, Any]) -> go.Figure:
         text=frame.round(2).astype(str).values,
         texttemplate="%{text}",
         hovertemplate="%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>",
-        colorbar={"title": "Correlation"},
+        colorbar={"title": "Correlation", "tickfont": {"color": MUTED}, "titlefont": {"color": MUTED}},
     ))
     return _layout(fig, "Correlation Grid")
 
