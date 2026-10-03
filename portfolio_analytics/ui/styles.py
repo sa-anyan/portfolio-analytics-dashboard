@@ -116,6 +116,38 @@ div.stButton > button[kind="primary"] {
     border-radius: 10px; padding: .7rem .85rem; margin: .4rem 0 1rem; color: #33465B;
 }
 [data-testid="stPlotlyChart"] > div { min-height: 0 !important; }
+
+.pa-finance-kpi {
+    min-height: 92px;
+    padding: 4px 4px 10px 0;
+    border-bottom: 1px solid #E5E1D8;
+}
+.pa-finance-kpi-label {
+    color: #6D7785;
+    font-size: .78rem;
+    font-weight: 650;
+    letter-spacing: .01em;
+    margin-bottom: 4px;
+}
+.pa-finance-kpi-value {
+    color: #14283F;
+    font-size: clamp(1.32rem, 2vw, 1.85rem);
+    line-height: 1.08;
+    font-weight: 760;
+    letter-spacing: -.035em;
+    white-space: nowrap;
+}
+.pa-finance-kpi-exact {
+    color: #7B8490;
+    font-size: .72rem;
+    margin-top: 6px;
+    white-space: nowrap;
+}
+@media (max-width: 900px) {
+    .pa-finance-kpi { min-height: 82px; }
+    .pa-finance-kpi-value { font-size: 1.28rem; }
+}
+
 </style>
 """
 
