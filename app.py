@@ -47,6 +47,7 @@ from portfolio_analytics.ui.visuals import (
 # PAGE SETUP
 #______________________________________________________________________________
 
+UI_BUILD = "2026.10.03-premium-dark-2"
 st.set_page_config(page_title="Portfolio Analytics v4", layout="wide")
 st.markdown(APP_CSS, unsafe_allow_html=True)
 st.markdown(HERO_HTML, unsafe_allow_html=True)
