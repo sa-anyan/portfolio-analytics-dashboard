@@ -112,7 +112,10 @@ def correlation_heatmap(analytics: dict[str, Any]) -> go.Figure:
         text=frame.round(2).astype(str).values,
         texttemplate="%{text}",
         hovertemplate="%{y} vs %{x}<br>Correlation: %{z:.3f}<extra></extra>",
-        colorbar={"title": "Correlation", "tickfont": {"color": MUTED}, "titlefont": {"color": MUTED}},
+        colorbar={
+            "title": {"text": "Correlation", "font": {"color": MUTED}},
+            "tickfont": {"color": MUTED},
+        },
     ))
     return _layout(fig, "Correlation Grid")
 
