@@ -211,35 +211,70 @@ div.stButton > button[kind="primary"] {
 .pa-inline-stat[data-tone="gold"] { border-bottom-color: rgba(201,154,53,.72); }
 .pa-inline-stat[data-tone="gold"] .pa-inline-stat-value { color: #8A6722; }
 
+
 .pa-section-header {
-    margin: 1.55rem 0 .85rem;
-    padding: 15px 18px 14px;
-    background: linear-gradient(100deg, #0A3153 0%, #123F64 100%);
-    border-left: 4px solid var(--pa-gold);
-    border-radius: 10px;
-    box-shadow: 0 5px 16px rgba(8,43,76,.08);
+    position: relative;
+    overflow: hidden;
+    margin: 2.05rem 0 1rem;
+    padding: 18px 22px 17px;
+    background:
+        radial-gradient(circle at 92% 15%, rgba(215,183,104,.16), transparent 28%),
+        linear-gradient(110deg, #071B2D 0%, #0B2D49 58%, #103B5D 100%);
+    border: 1px solid rgba(215,183,104,.28);
+    border-radius: 15px;
+    box-shadow: 0 12px 30px rgba(7,27,45,.12);
+}
+.pa-section-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, #E5C979, #B88B32);
+}
+.pa-section-header::after {
+    content: "";
+    position: absolute;
+    width: 180px;
+    height: 1px;
+    right: 22px;
+    top: 24px;
+    background: linear-gradient(90deg, transparent, rgba(229,201,121,.55));
 }
 .pa-section-header-eyebrow {
-    color: #E2B95F;
+    color: #E5C979;
     font-size: .64rem;
-    font-weight: 780;
-    letter-spacing: .15em;
+    font-weight: 800;
+    letter-spacing: .17em;
     text-transform: uppercase;
-    margin-bottom: 3px;
+    margin-bottom: 5px;
 }
 .pa-section-header-title {
-    color: #FFFFFF;
-    font-size: 1.18rem;
-    line-height: 1.2;
-    font-weight: 730;
-    letter-spacing: -.015em;
+    color: #FFFDF8;
+    font-size: clamp(1.15rem, 1.7vw, 1.42rem);
+    line-height: 1.18;
+    font-weight: 760;
+    letter-spacing: -.02em;
 }
 .pa-section-header-note {
-    color: #CAD6E0;
-    font-size: .78rem;
-    line-height: 1.45;
-    margin-top: 5px;
-    max-width: 1000px;
+    color: #C5D2DC;
+    font-size: .77rem;
+    line-height: 1.48;
+    margin-top: 7px;
+    max-width: 920px;
+}
+.pa-section-header + div {
+    scroll-margin-top: 1rem;
+}
+
+/* Secondary labels should support the premium bands, not compete with them. */
+.pa-kpi-group-label {
+    color: #8A7040;
+    font-size: .65rem;
+    font-weight: 790;
+    letter-spacing: .15em;
+    margin: .75rem 0 .4rem;
 }
 
 @media (max-width: 900px) {
