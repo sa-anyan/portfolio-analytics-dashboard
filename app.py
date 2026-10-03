@@ -380,6 +380,12 @@ with main_col:
                     st.warning(f"AI captions were unavailable, so textbook fallback captions are shown. {exc}")
             st.session_state.copilot_insights = insights
 
+            # The Copilot column is rendered before the input engine on each
+            # Streamlit run. Re-run once after a successful first analysis so
+            # the newly-created Portfolio State is immediately available to
+            # Copilot without requiring a second click or upload.
+            st.rerun()
+
         except Exception as exc:
             st.error(str(exc))
 
