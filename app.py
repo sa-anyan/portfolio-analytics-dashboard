@@ -103,7 +103,7 @@ def money(value: Any, *, compact: bool = False) -> str:
         return "—"
 
 
-def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
+def metric_money(label: str, value: Any, *, help: str | None = None, tone: str = "neutral") -> None:
     """Finance-style KPI: readable full value without Streamlit truncation."""
     try:
         amount = float(value)
@@ -123,7 +123,7 @@ def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
     exact = money(amount) if amount is not None else "—"
     st.markdown(
         f"""
-        <div class="pa-finance-kpi"{help_attr}>
+        <div class="pa-finance-kpi" data-tone="{tone}"{help_attr}>
             <div class="pa-finance-kpi-label">{label}</div>
             <div class="pa-finance-kpi-value">{display}</div>
             <div class="pa-finance-kpi-exact">{exact}</div>
@@ -133,7 +133,7 @@ def metric_money(label: str, value: Any, *, help: str | None = None) -> None:
     )
 
 
-def metric_percent(label: str, value: Any, *, help: str | None = None) -> None:
+def metric_percent(label: str, value: Any, *, help: str | None = None, tone: str = "neutral") -> None:
     """Finance-style percentage KPI matching the monetary summary strip."""
     try:
         amount = float(value) * 100.0
@@ -144,7 +144,7 @@ def metric_percent(label: str, value: Any, *, help: str | None = None) -> None:
     help_attr = f' title="{help}"' if help else ""
     st.markdown(
         f"""
-        <div class="pa-finance-kpi"{help_attr}>
+        <div class="pa-finance-kpi" data-tone="{tone}"{help_attr}>
             <div class="pa-finance-kpi-label">{label}</div>
             <div class="pa-finance-kpi-value">{display}</div>
             <div class="pa-finance-kpi-exact">Portfolio risk metric</div>
@@ -518,25 +518,25 @@ with main_col:
         st.markdown('<div class="pa-kpi-group-label">PORTFOLIO SUMMARY</div>', unsafe_allow_html=True)
         r1 = st.columns(4)
         with r1[0]:
-            metric_money("Equity", totals.get("equity"))
+            metric_money("Equity", totals.get("equity"), tone="positive")
         with r1[1]:
-            metric_money("Cash", totals.get("cash"))
+            metric_money("Cash", totals.get("cash"), tone="liquidity")
         with r1[2]:
-            metric_money("Gross Exposure", totals.get("gross_exposure"))
+            metric_money("Gross Exposure", totals.get("gross_exposure"), tone="exposure")
         with r1[3]:
-            metric_money("Net Exposure", totals.get("net_exposure"))
+            metric_money("Net Exposure", totals.get("net_exposure"), tone="exposure")
         insight_box(insights.get("exposure", ""))
 
         st.markdown('<div class="pa-kpi-group-label">RISK SNAPSHOT</div>', unsafe_allow_html=True)
         r2 = st.columns(4)
         with r2[0]:
-            metric_percent("Annual Volatility", risk.get("annual_volatility"))
+            metric_percent("Annual Volatility", risk.get("annual_volatility"), tone="risk")
         with r2[1]:
-            metric_money("VaR", risk.get("var_value"), help="Historical one-day VaR at the configured confidence level.")
+            metric_money("VaR", risk.get("var_value"), help="Historical one-day VaR at the configured confidence level.", tone="risk")
         with r2[2]:
-            metric_money("Expected Shortfall", risk.get("expected_shortfall_value"))
+            metric_money("Expected Shortfall", risk.get("expected_shortfall_value"), tone="risk")
         with r2[3]:
-            metric_percent("Max Drawdown", perf.get("max_drawdown"))
+            metric_percent("Max Drawdown", perf.get("max_drawdown"), tone="risk")
 
         risk_caption = " ".join(part for part in [insights.get("volatility", ""), insights.get("var", "")] if part)
         insight_box(risk_caption)
