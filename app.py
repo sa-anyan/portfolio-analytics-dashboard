@@ -172,6 +172,21 @@ def insight_box(text: str) -> None:
     st.markdown(f'<div class="pa-insight">{text}</div>', unsafe_allow_html=True)
 
 
+def section_header(title: str, eyebrow: str, note: str = "") -> None:
+    """High-contrast section divider for fast dashboard scanning."""
+    note_html = f'<div class="pa-section-header-note">{note}</div>' if note else ""
+    st.markdown(
+        f"""
+        <div class="pa-section-header">
+            <div class="pa-section-header-eyebrow">{eyebrow}</div>
+            <div class="pa-section-header-title">{title}</div>
+            {note_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def get_api_key() -> str | None:
     try:
         return st.secrets.get("OPENAI_API_KEY")
@@ -527,21 +542,25 @@ with main_col:
             metric_money("Net Exposure", totals.get("net_exposure"), tone="exposure")
         insight_box(insights.get("exposure", ""))
 
-        st.markdown('<div class="pa-kpi-group-label">RISK SNAPSHOT</div>', unsafe_allow_html=True)
+        section_header(
+            "Risk Snapshot",
+            "RISK & DOWNSIDE",
+            "VaR and Expected Shortfall are 1-day historical measures at 95% confidence. Volatility is annualised from daily returns using 252 trading days; max drawdown covers the selected historical window.",
+        )
         r2 = st.columns(4)
         with r2[0]:
-            metric_percent("Annual Volatility", risk.get("annual_volatility"), tone="risk")
+            metric_percent("Annualised Volatility", risk.get("annual_volatility"), help="Annualised from daily historical returns using 252 trading days.", tone="risk")
         with r2[1]:
-            metric_money("VaR", risk.get("var_value"), help="Historical one-day VaR at the configured confidence level.", tone="risk")
+            metric_money("1-Day VaR · 95%", risk.get("var_value"), help="Historical one-day Value at Risk at 95% confidence, calculated from daily portfolio returns.", tone="risk")
         with r2[2]:
-            metric_money("Expected Shortfall", risk.get("expected_shortfall_value"), tone="risk")
+            metric_money("1-Day Expected Shortfall · 95%", risk.get("expected_shortfall_value"), help="Average one-day loss in the historical tail beyond the 95% VaR threshold.", tone="risk")
         with r2[3]:
-            metric_percent("Max Drawdown", perf.get("max_drawdown"), tone="risk")
+            metric_percent("Max Drawdown · History", perf.get("max_drawdown"), help="Largest peak-to-trough decline across the selected historical window.", tone="risk")
 
         risk_caption = " ".join(part for part in [insights.get("volatility", ""), insights.get("var", "")] if part)
         insight_box(risk_caption)
 
-        st.markdown("#### Allocation & risk")
+        section_header("Allocation & Risk", "PORTFOLIO STRUCTURE", "See where capital is concentrated and which holdings contribute most to portfolio risk.")
         chart1, chart2 = st.columns(2, gap="medium")
         with chart1:
             st.plotly_chart(holdings_donut(analytics), use_container_width=True, config={"displaylogo": False})
@@ -550,7 +569,7 @@ with main_col:
             st.plotly_chart(risk_contribution_donut(analytics), use_container_width=True, config={"displaylogo": False})
             insight_box(insights.get("risk_contribution", ""))
 
-        st.markdown("#### Historical behaviour")
+        section_header("Historical Behaviour", "PERFORMANCE THROUGH TIME", "Portfolio growth and peak-to-trough drawdown across the selected historical window.")
         actual = analytics.get("actual_performance", {})
         has_dated_history = bool(state.get("accounting_history", {}).get("available"))
         show_actual = False
@@ -599,7 +618,7 @@ with main_col:
             else:
                 insight_box(insights.get("drawdown", ""))
 
-        st.markdown("#### Diversification & exposure")
+        section_header("Diversification & Exposure", "PORTFOLIO RELATIONSHIPS", "Correlation and signed exposure show how positions interact and where concentration can build.")
         chart5, chart6 = st.columns([1.15, 0.85], gap="medium")
         with chart5:
             st.plotly_chart(correlation_heatmap(analytics), use_container_width=True, config={"displaylogo": False})
@@ -608,7 +627,7 @@ with main_col:
             st.plotly_chart(exposure_bar(analytics), use_container_width=True, config={"displaylogo": False})
             insight_box(insights.get("pnl", ""))
 
-        st.markdown("#### Historical combination risk")
+        section_header("Historical Combination Risk", "SECURITY COMBINATIONS", "Compare equal-weight groups using historical daily returns. These are historical risk diagnostics, not forecasts.")
         combination_risk = analytics.get("combination_risk", {})
         eligible = combination_risk.get("eligible_tickers", [])
         excluded = combination_risk.get("excluded_tickers", {})
