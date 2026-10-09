@@ -28,6 +28,7 @@ from portfolio_analytics.input_engine.manual import parse_manual_holdings
 from portfolio_analytics.input_engine.parser import parse_upload
 from portfolio_analytics.ui.discover import render_discover
 from portfolio_analytics.ui.trust import render_trust
+from portfolio_analytics.ui.consolidation import render_ingestion
 from portfolio_analytics.diagnostics.trust import diagnose_trust, TrustPolicy, finite, risk_values_for_display
 from portfolio_analytics.ui.insights import fallback_insights
 from portfolio_analytics.ui.styles import APP_CSS, HERO_HTML
@@ -71,6 +72,7 @@ for key, default in {
     "copilot_uses": 0,
     "trust_attempt": None,
     "trust_policy": {},
+    "consolidation_batch": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -385,7 +387,7 @@ with main_col:
         st.subheader("1. Build Your Portfolio")
         source_type = st.radio(
             "Input method",
-            ["Upload file", "Manual entry"],
+            ["Upload file", "Manual entry", "Multiple account files"],
             horizontal=True,
         )
 
@@ -427,6 +429,8 @@ with main_col:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
+        elif source_type == "Multiple account files":
+            render_ingestion()
         else:
             st.caption("Enter holdings directly. Positive quantity = long; negative quantity = short. Entry price and current price are optional when live valuation is enabled.")
             if "Currency" not in st.session_state.manual_rows:
@@ -450,7 +454,7 @@ with main_col:
             )
             st.session_state.manual_rows = manual_frame
 
-        analyse = st.button("Parse & Analyse Portfolio", type="primary")
+        analyse = st.button("Parse & Analyse Portfolio", type="primary", disabled=source_type == "Multiple account files")
 
         if analyse:
             st.session_state.trust_attempt = None

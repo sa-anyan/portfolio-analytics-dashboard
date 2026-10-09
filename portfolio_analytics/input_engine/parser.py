@@ -19,12 +19,12 @@ from .normalizer import detect_column_map, normalise_holdings, normalise_ledger
 # FILE READING
 #______________________________________________________________________________
 
-def read_portfolio_file(data: bytes, filename: str) -> pd.DataFrame:
+def read_portfolio_file(data: bytes, filename: str, *, dtype: Any = None, keep_default_na: bool = True) -> pd.DataFrame:
     suffix = Path(filename or "").suffix.lower()
 
     if suffix == ".csv":
         text = data.decode("utf-8-sig", errors="replace")
-        return pd.read_csv(StringIO(text))
+        return pd.read_csv(StringIO(text), dtype=dtype, keep_default_na=keep_default_na)
 
     if suffix in {".xlsx", ".xlsm"}:
         workbook = pd.ExcelFile(BytesIO(data))
@@ -32,7 +32,7 @@ def read_portfolio_file(data: bytes, filename: str) -> pd.DataFrame:
             raise ValueError("Excel workbook contains no worksheets.")
         # v4 deliberately starts with the first visible data sheet. Sheet selection
         # can be added later without changing the parser contract.
-        return pd.read_excel(workbook, sheet_name=workbook.sheet_names[0])
+        return pd.read_excel(workbook, sheet_name=workbook.sheet_names[0], dtype=dtype, keep_default_na=keep_default_na)
 
     raise ValueError("Upload a CSV or XLSX portfolio file.")
 
