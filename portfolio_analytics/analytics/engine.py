@@ -470,7 +470,7 @@ def run_analytics(
             metrics = _series_metrics(returns[ticker], risk_free_rate=risk_free_rate, var_level=var_level)
             asset_metrics.append({"ticker": ticker, **metrics})
 
-    return {
+    result = {
         "meta": {
             "var_level": float(var_level),
             "risk_free_rate": float(risk_free_rate),
@@ -533,6 +533,10 @@ def run_analytics(
             "current_signed_weights": {str(k): float(v) for k, v in weights.items()},
         },
     }
+
+    from portfolio_analytics.analytics.findings import generate_findings
+    result["deep_findings"] = generate_findings(state, result)
+    return result
 
 
 #______________________________________________________________________________
