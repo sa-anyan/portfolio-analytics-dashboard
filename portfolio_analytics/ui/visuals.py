@@ -88,7 +88,7 @@ def risk_contribution_donut(analytics: dict[str, Any]) -> go.Figure:
         textinfo="label+percent",
         hovertemplate="%{label}<br>Absolute risk share: %{value:.2f}%<br>Signed contribution: %{customdata[0]:.2f}%<extra></extra>",
     )
-    return _layout(fig, "Risk Contribution")
+    return _layout(fig, "Absolute Risk Contribution Share")
 
 
 #______________________________________________________________________________

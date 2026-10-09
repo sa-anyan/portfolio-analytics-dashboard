@@ -123,7 +123,10 @@ def fetch_price_history(
     period: str = "3y",
     start: Any = None,
     end: Any = None,
+    price_basis: str = "total_return",
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if price_basis not in {"total_return", "accounting", "split_adjusted_close"}:
+        raise ValueError("Unknown historical price basis.")
     ordered = _clean_tickers(tickers)
     if not ordered:
         return pd.DataFrame(), {"source": "none", "missing": []}
@@ -136,6 +139,7 @@ def fetch_price_history(
         "progress": False,
         "group_by": "column",
         "threads": True,
+        "actions": True,
     }
     if start is not None:
         kwargs["start"] = start
@@ -145,11 +149,29 @@ def fetch_price_history(
         kwargs["period"] = period
 
     downloaded = yf.download(**kwargs)
-    close = _extract_close(downloaded, ordered, prefer_adjusted=True)
+    fields = set(downloaded.columns.get_level_values(0)) if isinstance(downloaded.columns, pd.MultiIndex) else set(downloaded.columns)
+    if price_basis == "total_return" and not downloaded.empty and "Adj Close" not in fields:
+        raise ValueError("Adjusted-close total-return data is unavailable; raw closes cannot silently replace it.")
+    close = _extract_close(downloaded, ordered, prefer_adjusted=price_basis == "total_return")
+    splits = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+    if isinstance(downloaded.columns, pd.MultiIndex) and "Stock Splits" in downloaded.columns.get_level_values(0):
+        splits = downloaded["Stock Splits"].reindex(index=close.index, columns=close.columns).fillna(0.0)
+    elif len(ordered) == 1 and "Stock Splits" in downloaded:
+        splits[ordered[0]] = downloaded["Stock Splits"].fillna(0.0)
+    if price_basis == "accounting":
+        # Yahoo Close is split-adjusted retrospectively. Undo only future splits
+        # so historical executions are valued in the actual share units that day.
+        factors = splits.where(splits.ne(0), 1.0).iloc[::-1].cumprod().iloc[::-1]
+        factors = factors / splits.where(splits.ne(0), 1.0)
+        close = close * factors
+    close.attrs["price_basis"] = price_basis
+    splits.index = pd.to_datetime(splits.index).normalize()
+    close.attrs["splits"] = splits.loc[splits.ne(0).any(axis=1)]
     missing = [ticker for ticker in ordered if ticker not in close.columns or close[ticker].dropna().empty]
 
     return close, {
         "source": "Yahoo Finance",
+        "price_basis": price_basis,
         "start": close.index.min().isoformat() if not close.empty else None,
         "end": close.index.max().isoformat() if not close.empty else None,
         "missing": missing,

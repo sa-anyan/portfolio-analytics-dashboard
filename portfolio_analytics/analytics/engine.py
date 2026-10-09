@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from portfolio_analytics.core.fx import aligned_fx
 
 
 #______________________________________________________________________________
@@ -17,6 +18,55 @@ import pandas as pd
 #______________________________________________________________________________
 
 TRADING_DAYS = 252
+
+
+def _drawdown(wealth: pd.Series) -> pd.Series:
+    return wealth / wealth.cummax().clip(lower=1.0) - 1.0
+
+
+def _validate_var_level(level: float) -> None:
+    if not np.isfinite(level) or not 0.0 < level < 1.0:
+        raise ValueError("VaR confidence must be strictly between zero and one.")
+
+
+def _base_prices(state: dict[str, Any], prices: pd.DataFrame, fx_history: pd.DataFrame | None) -> pd.DataFrame:
+    base = state.get("meta", {}).get("base_currency", "USD")
+    result = prices.copy()
+    result.columns = [str(c).upper() for c in result.columns]
+    result.index = pd.to_datetime(result.index).normalize()
+    # One common business-day calendar, including crypto and international assets.
+    result = result.loc[result.index.dayofweek < 5]
+    fx = aligned_fx(fx_history, result.index, base)
+    positions = {str(row.get("Ticker") or "").upper(): str(row.get("Currency") or base).upper()
+                 for key in ("holdings", "ledger") for row in state.get("inputs", {}).get("normalised_dataset", {}).get(key, [])}
+    positions.update({str(row.get("ticker") or "").upper(): str(row.get("currency") or base).upper() for row in state.get("positions", [])})
+    for ticker, ccy in positions.items():
+        if ticker in result:
+            result[ticker] = result[ticker] * (fx[ccy] if ccy in fx else np.nan)
+    for ccy, amount in state.get("cash", {}).get("balances", {}).items():
+        if ccy != base and abs(float(amount)) > 1e-12:
+            result[f"CASH:{ccy}"] = fx[ccy] if ccy in fx else np.nan
+    return result
+
+
+def _coverage(state: dict[str, Any], returns: pd.DataFrame) -> dict[str, Any]:
+    required = [str(row.get("ticker") or "").upper() for row in state.get("positions", []) if abs(float(row.get("quantity") or 0)) > 1e-15]
+    base = state.get("meta", {}).get("base_currency", "USD")
+    required += [f"CASH:{ccy}" for ccy, amount in state.get("cash", {}).get("balances", {}).items() if ccy != base and abs(float(amount)) > 1e-12]
+    missing = [t for t in required if t not in returns or returns[t].notna().sum() < 2]
+    common = returns[required].dropna() if required and not missing else pd.DataFrame()
+    equity = float(state.get("totals", {}).get("equity") or 0)
+    reason = None
+    if state.get("meta", {}).get("missing_prices"):
+        reason = "Current valuation is incomplete."
+    elif equity <= 0:
+        reason = "Positive portfolio equity is required for investor-return risk metrics."
+    elif missing:
+        reason = "Missing return/FX coverage: " + ", ".join(missing)
+    elif required and len(common) < 2:
+        reason = "Insufficient common observations for the complete portfolio."
+    return {"available": reason is None, "required_tickers": required, "missing_tickers": missing,
+            "common_observations": len(common), "reason": reason}
 
 
 #______________________________________________________________________________
@@ -40,6 +90,7 @@ def _series_metrics(
     risk_free_rate: float = 0.0,
     var_level: float = 0.95,
 ) -> dict[str, float | int | None]:
+    _validate_var_level(var_level)
     r = pd.to_numeric(daily_returns, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
     if r.empty:
         return {
@@ -55,8 +106,11 @@ def _series_metrics(
     mean_daily = float(r.mean())
     annual_return = mean_daily * TRADING_DAYS
     annual_volatility = float(r.std(ddof=1)) * np.sqrt(TRADING_DAYS) if len(r) > 1 else np.nan
+    if not np.isfinite(risk_free_rate) or risk_free_rate <= -1:
+        raise ValueError("Risk-free rate must be a finite effective annual rate greater than -100%.")
+    daily_rf = (1.0 + float(risk_free_rate)) ** (1.0 / TRADING_DAYS) - 1.0
     sharpe = (
-        (annual_return - float(risk_free_rate)) / annual_volatility
+        (mean_daily - daily_rf) * TRADING_DAYS / annual_volatility
         if np.isfinite(annual_volatility) and annual_volatility > 0
         else np.nan
     )
@@ -67,23 +121,28 @@ def _series_metrics(
     es_pct = max(0.0, -float(tail.mean())) if not tail.empty else np.nan
 
     wealth = (1.0 + r).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
+    drawdown = _drawdown(wealth)
 
     return {
         "observations": int(len(r)),
         "annual_return": float(annual_return),
+        "annual_return_method": "arithmetic mean daily return × 252",
+        "geometric_annual_return": float(wealth.iloc[-1] ** (TRADING_DAYS / len(r)) - 1) if (r > -1).all() else None,
+        "tail_observations": int(len(tail)),
         "annual_volatility": float(annual_volatility) if np.isfinite(annual_volatility) else None,
         "sharpe": float(sharpe) if np.isfinite(sharpe) else None,
         "var_pct": float(var_pct),
         "expected_shortfall_pct": float(es_pct) if np.isfinite(es_pct) else None,
-        "max_drawdown": float(drawdown.min()),
+        "max_drawdown": float(drawdown.min()) if (r > -1).all() else None,
+        "compounding_available": bool((r > -1).all()),
     }
 
 
 def _current_signed_weights(state: dict[str, Any], return_columns: list[str]) -> pd.Series:
     equity = float(state.get("totals", {}).get("equity") or 0.0)
-    weights = pd.Series(0.0, index=return_columns, dtype=float)
-    if abs(equity) < 1e-12:
+    required = [str(row.get("ticker") or "").upper() for row in state.get("positions", [])]
+    weights = pd.Series(0.0, index=list(dict.fromkeys(return_columns + required)), dtype=float)
+    if equity <= 1e-12:
         return weights
 
     for row in state.get("positions", []):
@@ -91,17 +150,23 @@ def _current_signed_weights(state: dict[str, Any], return_columns: list[str]) ->
         value = row.get("signed_market_value")
         if ticker in weights.index and value is not None:
             weights.loc[ticker] += float(value) / equity
+    base = state.get("meta", {}).get("base_currency", "USD")
+    for ccy, amount in state.get("cash", {}).get("balances", {}).items():
+        if ccy != base and abs(float(amount)) > 1e-12:
+            weights.loc[f"CASH:{ccy}"] = float(amount) * float(state["cash"]["valuation_fx"][ccy]) / equity
     return weights
 
 
 def _static_portfolio_returns(returns: pd.DataFrame, weights: pd.Series) -> pd.Series:
     active = weights[weights.abs() > 1e-15]
     if active.empty:
-        return pd.Series(dtype=float, name="Portfolio Return")
+        return pd.Series(0.0, index=returns.index, name="Portfolio Return")
     available = [
         ticker for ticker in active.index
         if ticker in returns.columns and pd.to_numeric(returns[ticker], errors="coerce").notna().sum() >= 2
     ]
+    if len(available) != len(active):
+        return pd.Series(dtype=float, name="Portfolio Return")
     if not available:
         return pd.Series(dtype=float, name="Portfolio Return")
     selected = returns[available].dropna(how="any")
@@ -117,7 +182,7 @@ def _risk_contribution(returns: pd.DataFrame, weights: pd.Series) -> list[dict[s
         ticker for ticker in active.index
         if ticker in returns.columns and pd.to_numeric(returns[ticker], errors="coerce").notna().sum() >= 2
     ]
-    if not available:
+    if len(available) != len(active) or not available:
         return []
     selected = returns[available].dropna(how="any")
     if len(selected) < 2:
@@ -167,157 +232,155 @@ def _correlation_matrix(returns: pd.DataFrame, tickers: list[str]) -> dict[str, 
 # LEDGER HISTORICAL PERFORMANCE PATH
 #______________________________________________________________________________
 
-def _ledger_equity_curve(state: dict[str, Any], price_history: pd.DataFrame, fx_history: pd.DataFrame | None = None, base_currency: str = "USD") -> pd.DataFrame:
+def _history_inputs(state, price_history, fx_history, base_currency):
     history = state.get("accounting_history", {})
-    if history.get("available"):
-        trades = pd.DataFrame(history.get("trades", []))
-        cashflows = pd.DataFrame(history.get("cashflows", []))
-    else:
-        normalised = state.get("inputs", {}).get("normalised_dataset", {})
-        trades = pd.DataFrame(normalised.get("ledger", []))
-        cashflows = pd.DataFrame(normalised.get("cashflows", []))
-    if trades.empty or price_history.empty:
-        return pd.DataFrame()
-
+    if history.get("missing_dated_basis"):
+        raise ValueError("Incomplete dated holdings: " + ", ".join(history["missing_dated_basis"]))
+    trades = pd.DataFrame(history.get("trades", state.get("inputs", {}).get("normalised_dataset", {}).get("ledger", [])))
+    flows = pd.DataFrame(history.get("cashflows", state.get("inputs", {}).get("normalised_dataset", {}).get("cashflows", [])))
     prices = price_history.copy()
-    prices.columns = [str(c).strip().upper() for c in prices.columns]
-    prices.index = pd.to_datetime(prices.index, errors="coerce").normalize()
-    prices = prices.loc[~prices.index.isna()].sort_index()
-
-    trades["Date"] = pd.to_datetime(trades["Date"], errors="coerce").dt.normalize()
-    trades["Signed Quantity"] = pd.to_numeric(trades["Signed Quantity"], errors="coerce")
-    trades["Price"] = pd.to_numeric(trades["Price"], errors="coerce")
-    trades["Fees"] = pd.to_numeric(trades.get("Fees", 0.0), errors="coerce").fillna(0.0)
-    trades["Currency"] = trades.get("Currency", base_currency)
-    trades["Currency"] = trades["Currency"].fillna(base_currency).astype(str).str.upper().replace({"": base_currency})
-    trades = trades.dropna(subset=["Date", "Ticker", "Signed Quantity", "Price"])
-
+    if prices.empty:
+        raise ValueError("Historical account prices are unavailable.")
+    if prices.attrs.get("price_basis") == "total_return":
+        raise ValueError("Account reconstruction requires accounting marks, not dividend-adjusted total-return prices.")
+    prices.columns = [str(c).upper() for c in prices.columns]
+    prices.index = pd.to_datetime(prices.index).normalize()
+    prices = prices.groupby(level=0).last().sort_index().apply(pd.to_numeric, errors="coerce")
+    prices = prices.loc[prices.index.dayofweek < 5]
+    for events in (trades, flows):
+        if not events.empty:
+            events["Date"] = pd.to_datetime(events["Date"]).dt.normalize()
+            # Weekend events are booked at the next business-day valuation.
+            events["Date"] = events["Date"].map(lambda d: d + pd.offsets.BDay(0))
+            events["Currency"] = events.get("Currency", pd.Series(base_currency, index=events.index)).fillna(base_currency).astype(str).str.upper()
     if trades.empty:
-        return pd.DataFrame()
-
-    if not cashflows.empty:
-        cashflows["Date"] = pd.to_datetime(cashflows["Date"], errors="coerce").dt.normalize()
-        cashflows["Amount"] = pd.to_numeric(cashflows["Amount"], errors="coerce")
-        cashflows["Currency"] = cashflows.get("Currency", base_currency)
-        cashflows["Currency"] = cashflows["Currency"].fillna(base_currency).astype(str).str.upper().replace({"": base_currency})
-        cashflows = cashflows.dropna(subset=["Date", "Amount"])
-
-    tickers = sorted(set(trades["Ticker"].astype(str).str.upper()) & set(prices.columns))
-    if not tickers:
-        return pd.DataFrame()
-
-    trades = trades[trades["Ticker"].astype(str).str.upper().isin(tickers)].copy()
+        raise ValueError("No security accounting events are available.")
     trades["Ticker"] = trades["Ticker"].astype(str).str.upper()
-
-    first_date = trades["Date"].min()
-    if not cashflows.empty:
-        first_date = min(first_date, cashflows["Date"].min())
-
-    event_dates = pd.DatetimeIndex(trades["Date"].unique())
-    if not cashflows.empty:
-        event_dates = event_dates.union(pd.DatetimeIndex(cashflows["Date"].unique()))
-    timeline = prices.index.union(event_dates).sort_values()
-    timeline = timeline[timeline >= first_date]
-    if timeline.empty:
-        return pd.DataFrame()
-
-    px = prices.reindex(timeline)[tickers].ffill()
-
-    # Currency is an accounting invariant: every mark, execution and cash flow is
-    # converted into USD before values are added together. Missing currency is
-    # explicitly treated as USD by the normaliser. GBX is pence, so its USD rate
-    # is GBPUSD / 100.
-    fx = pd.DataFrame(index=timeline)
-    if fx_history is not None and not fx_history.empty:
-        raw_fx = fx_history.copy()
-        raw_fx.columns = [str(c).strip().upper() for c in raw_fx.columns]
-        raw_fx.index = pd.to_datetime(raw_fx.index, errors="coerce").normalize()
-        raw_fx = raw_fx.loc[~raw_fx.index.isna()].sort_index()
-        fx = raw_fx.reindex(timeline).ffill()
-    fx[base_currency.upper()] = 1.0
-    if "GBP" in fx.columns and "GBX" not in fx.columns:
-        fx["GBX"] = fx["GBP"] / 100.0
-
-    ticker_currency = {}
+    tickers = sorted(trades["Ticker"].unique())
+    missing = sorted(set(tickers) - set(prices.columns))
+    if missing:
+        raise ValueError("Missing historical prices: " + ", ".join(missing))
+    first = trades["Date"].min()
+    if not flows.empty:
+        first = min(first, flows["Date"].min())
+    last_event = max(trades["Date"].max(), flows["Date"].max() if not flows.empty else first)
+    if last_event > prices.index.max():
+        raise ValueError("Accounting events fall after the available market history.")
+    timeline = pd.bdate_range(first, max(prices.index.max(), trades["Date"].max(), flows["Date"].max() if not flows.empty else first))
+    prices = prices.reindex(prices.index.union(timeline)).ffill().reindex(timeline)[tickers]
+    fx = aligned_fx(fx_history, timeline, base_currency)
+    currencies = set(trades["Currency"]) | (set(flows["Currency"]) if not flows.empty else set())
+    currencies |= set(state.get("cash", {}).get("balances", {}))
+    missing_fx = currencies - set(fx.columns)
+    if missing_fx:
+        raise ValueError("Missing historical FX: " + ", ".join(sorted(missing_fx)))
+    for ccy in currencies:
+        if fx[ccy].isna().any():
+            raise ValueError(f"Incomplete historical FX coverage for {ccy}.")
+    currency_map = {}
     for ticker, group in trades.groupby("Ticker"):
-        currencies = group["Currency"].dropna().astype(str).str.upper()
-        ticker_currency[str(ticker).upper()] = currencies.iloc[-1] if not currencies.empty else base_currency.upper()
+        if group["Currency"].nunique() != 1:
+            raise ValueError(f"Conflicting quote currencies for {ticker}.")
+        currency_map[ticker] = group["Currency"].iloc[0]
+    return trades, flows, prices, fx, currency_map
 
-    px_base = pd.DataFrame(index=timeline, columns=tickers, dtype=float)
-    for ticker in tickers:
-        ccy = ticker_currency.get(ticker, base_currency.upper())
-        rate = fx[ccy] if ccy in fx.columns else pd.Series(index=timeline, dtype=float)
-        px_base[ticker] = px[ticker] * rate
 
-    position_changes = pd.DataFrame(0.0, index=timeline, columns=tickers)
-    cash_changes = pd.Series(0.0, index=timeline, dtype=float)
-    external_flows = pd.Series(0.0, index=timeline, dtype=float)
-
-    for _, row in trades.iterrows():
-        date = row["Date"]
-        if date not in timeline:
-            continue
-        ticker = str(row["Ticker"])
-        signed_qty = float(row["Signed Quantity"])
-        trade_price = float(row["Price"])
-        fees = float(row["Fees"])
-        ccy = str(row.get("Currency") or base_currency).upper()
-        rate = float(fx.at[date, ccy]) if ccy in fx.columns and pd.notna(fx.at[date, ccy]) else np.nan
-        if not np.isfinite(rate):
-            continue
-        trade_price *= rate
-        fees *= rate
-        position_changes.at[date, ticker] += signed_qty
-        cash_changes.at[date] += -(signed_qty * trade_price) - fees
-
-    for _, row in cashflows.iterrows():
-        date = row["Date"]
-        if date not in timeline:
-            continue
-        amount = abs(float(row["Amount"]))
-        event_type = str(row["Type"]).upper()
-        ccy = str(row.get("Currency") or base_currency).upper()
-        rate = float(fx.at[date, ccy]) if ccy in fx.columns and pd.notna(fx.at[date, ccy]) else np.nan
-        if not np.isfinite(rate):
-            continue
-        amount *= rate
-        if event_type in {"DEPOSIT", "DIVIDEND"}:
-            cash_changes.at[date] += amount
-        elif event_type == "WITHDRAWAL":
-            cash_changes.at[date] -= amount
-        if event_type == "DEPOSIT":
-            external_flows.at[date] += amount
-        elif event_type == "WITHDRAWAL":
-            external_flows.at[date] -= amount
-
-    positions = position_changes.cumsum()
-    starting_cash = float(state.get("cash", {}).get("starting", 0.0) or 0.0)
-    cash = starting_cash + cash_changes.cumsum()
-    missing_open_price = ((positions.abs() > 1e-15) & px_base.isna()).any(axis=1)
-    market_value = (positions * px_base).sum(axis=1, min_count=1)
-    equity = cash + market_value
-    equity.loc[missing_open_price] = np.nan
-
+def _finish_curve(cash, values, external, opening, *, position_pnl=None):
+    if values.isna().any().any() or cash.isna().any():
+        raise ValueError("Incomplete active-position price/FX coverage; account performance was withheld.")
+    equity = cash + values.sum(axis=1)
     previous = equity.shift(1)
-    daily_return = (equity - previous - external_flows) / previous
-    daily_return.loc[previous.isna() | (previous.abs() < 1e-12)] = np.nan
-    first_valid = equity.first_valid_index()
-    if first_valid is not None:
-        daily_return.loc[first_valid] = 0.0
+    previous.iloc[0] = opening
+    if (previous.dropna() < 0).any() or (equity < 0).any():
+        raise ValueError("Non-positive account equity cannot support ordinary investor-return performance.")
+    daily = (equity - previous - external) / previous.where(previous > 1e-12)
+    wealth = (1 + daily.fillna(0.0)).cumprod()
+    curve = pd.DataFrame({"cash": cash, "market_value": values.sum(axis=1), "equity": equity,
+                          "external_flow": external, "daily_return": daily,
+                          "cumulative_return": wealth - 1, "drawdown": _drawdown(wealth)})
+    for ticker in values:
+        curve[f"position__{ticker}"] = values[ticker]
+        if position_pnl is not None:
+            curve[f"pnl__{ticker}"] = position_pnl[ticker]
+    curve.attrs["opening_capital"] = opening
+    curve.attrs["cash_flow_timing"] = "end-of-day; weekend events booked next business day"
+    return curve
 
-    # Do not turn unresolved market-data gaps into artificial 0% return days.
-    wealth = (1.0 + daily_return.dropna()).cumprod().reindex(timeline)
-    drawdown = wealth / wealth.cummax() - 1.0
 
-    return pd.DataFrame({
-        "cash": cash,
-        "market_value": market_value,
-        "equity": equity,
-        "external_flow": external_flows,
-        "daily_return": daily_return,
-        "cumulative_return": wealth - 1.0,
-        "drawdown": drawdown,
-    })
+def _ledger_equity_curve(state: dict[str, Any], price_history: pd.DataFrame, fx_history: pd.DataFrame | None = None, base_currency: str = "USD") -> pd.DataFrame:
+    trades, flows, prices, fx, ccy_map = _history_inputs(state, price_history, fx_history, base_currency)
+    timeline, tickers = prices.index, list(prices.columns)
+    changes = pd.DataFrame(0.0, index=timeline, columns=tickers)
+    trade_cash = pd.DataFrame(0.0, index=timeline, columns=tickers)
+    native_changes = pd.DataFrame(0.0, index=timeline, columns=fx.columns)
+    external = pd.Series(0.0, index=timeline)
+    for _, row in trades.iterrows():
+        date, ticker, ccy = row["Date"], row["Ticker"], row["Currency"]
+        quantity, execution = float(row["Signed Quantity"]), float(row["Price"])
+        fees = abs(float(row.get("Fees") or 0))
+        cost = -quantity * execution - fees
+        changes.at[date, ticker] += quantity
+        native_changes.at[date, ccy] += cost
+        trade_cash.at[date, ticker] += cost * fx.at[date, ccy]
+    for _, row in flows.iterrows():
+        date, ccy = row["Date"], row["Currency"]
+        amount = abs(float(row["Amount"])) * (-1 if row["Type"] == "WITHDRAWAL" else 1)
+        native_changes.at[date, ccy] += amount
+        if row["Type"] in {"DEPOSIT", "WITHDRAWAL"}:
+            external.at[date] += amount * fx.at[date, ccy]
+    splits = price_history.attrs.get("splits", pd.DataFrame())
+    if price_history.attrs.get("price_basis") == "split_adjusted_close" and not splits.empty:
+        raise ValueError("Transaction replay needs contemporaneous marks with split events, not split-adjusted price levels.")
+    quantities = pd.DataFrame(0.0, index=timeline, columns=tickers)
+    current = pd.Series(0.0, index=tickers)
+    prior_quantities = quantities.copy()
+    for date in timeline:
+        if date in splits.index:
+            ratios = splits.loc[date].reindex(tickers).fillna(0)
+            current *= ratios.where(ratios.ne(0), 1)
+        prior_quantities.loc[date] = current
+        current += changes.loc[date]
+        quantities.loc[date] = current
+    marks = pd.DataFrame({t: prices[t] * fx[ccy_map[t]] for t in tickers})
+    values = quantities * marks
+    values = values.mask(quantities.eq(0), 0)
+    if ((quantities.ne(0)) & marks.isna()).any().any():
+        raise ValueError("Missing marks for an active ledger position.")
+    opening = float(state.get("cash", {}).get("starting", 0) or 0)
+    native = native_changes.cumsum()
+    native[base_currency] += opening
+    cash = (native * fx).sum(axis=1)
+    # Position P&L includes intraday execution-vs-close and fees, and is split neutral.
+    previous_values = values.shift(1).fillna(0)
+    pnl = values - previous_values + trade_cash
+    return _finish_curve(cash, values, external, opening, position_pnl=pnl)
+
+
+def _dated_holdings_snapshot_curve(state: dict[str, Any], price_history: pd.DataFrame, fx_history: pd.DataFrame | None = None, base_currency: str = "USD") -> pd.DataFrame:
+    trades, _, prices, fx, ccy_map = _history_inputs(state, price_history, fx_history, base_currency)
+    if state.get("accounting_history", {}).get("method") != "reconstructed dated holdings":
+        return pd.DataFrame()
+    values = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+    entries = values.copy()
+    for _, row in trades.iterrows():
+        ticker, date = row["Ticker"], row["Date"]
+        active = prices.index >= date
+        lot = prices[ticker] * float(row["Signed Quantity"]) * fx[ccy_map[ticker]]
+        if lot.loc[active].isna().any():
+            raise ValueError(f"Missing active dated-holdings marks for {ticker}.")
+        values.loc[active, ticker] += lot.loc[active]
+        entries.at[prices.index[active][0], ticker] += float(lot.loc[active].iloc[0])
+    balances = state.get("cash", {}).get("balances")
+    if balances is None:
+        balances = {base_currency: float(state.get("cash", {}).get("starting", 0) or 0) + float(state.get("cash", {}).get("explicit_snapshot_cash", 0) or 0)}
+    cash = pd.Series(0.0, index=prices.index)
+    for ccy, amount in balances.items():
+        if ccy not in fx:
+            raise ValueError(f"Missing historical FX for snapshot cash {ccy}.")
+        cash += float(amount) * fx[ccy]
+    opening = float(cash.iloc[0])
+    pnl = values.diff().fillna(values.iloc[0]) - entries
+    return _finish_curve(cash, values, entries.sum(axis=1), opening, position_pnl=pnl)
 
 
 #______________________________________________________________________________
@@ -330,12 +393,14 @@ def run_analytics(
     *,
     risk_free_rate: float = 0.0,
     var_level: float = 0.95,
+    fx_history: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Calculate current-book risk plus path-aware performance analytics."""
-    returns = _returns_from_prices(price_history)
+    returns = _returns_from_prices(_base_prices(state, price_history, fx_history))
+    coverage = _coverage(state, returns)
     tickers = [str(row.get("ticker") or "").upper() for row in state.get("positions", [])]
     weights = _current_signed_weights(state, list(returns.columns))
-    static_returns = _static_portfolio_returns(returns, weights)
+    static_returns = _static_portfolio_returns(returns, weights) if coverage["available"] else pd.Series(dtype=float)
     risk_metrics = _series_metrics(static_returns, risk_free_rate=risk_free_rate, var_level=var_level)
 
     equity = float(state.get("totals", {}).get("equity") or 0.0)
@@ -350,68 +415,27 @@ def run_analytics(
         else None
     )
 
-    ledger_curve = pd.DataFrame()
-    if state.get("accounting_history", {}).get("available"):
-        ledger_curve = _ledger_equity_curve(state, price_history)
-
-    use_account_path_as_default = state.get("meta", {}).get("path") == "ledger"
-    if use_account_path_as_default and not ledger_curve.empty and ledger_curve["daily_return"].dropna().shape[0] >= 2:
-        performance_returns = ledger_curve["daily_return"]
-        performance_metrics = _series_metrics(
-            performance_returns,
-            risk_free_rate=risk_free_rate,
-            var_level=var_level,
-        )
-        performance_method = "actual ledger path with external cash-flow adjustment"
-        performance_series = ledger_curve
+    # Risk history uses total-return prices; account reconstruction is a separate call.
+    performance_returns = static_returns
+    performance_metrics = risk_metrics.copy()
+    performance_method = "constant current-weight historical simulation (implied daily rebalancing)"
+    if static_returns.empty or not risk_metrics.get("compounding_available", False):
+        performance_series = pd.DataFrame()
     else:
-        performance_returns = static_returns
-        performance_metrics = _series_metrics(
-            performance_returns,
-            risk_free_rate=risk_free_rate,
-            var_level=var_level,
-        )
-        performance_method = "static current-book historical simulation"
-        if static_returns.empty:
-            performance_series = pd.DataFrame()
-        else:
-            wealth = (1.0 + static_returns).cumprod()
-            performance_series = pd.DataFrame({
-                "daily_return": static_returns,
-                "cumulative_return": wealth - 1.0,
-                "drawdown": wealth / wealth.cummax() - 1.0,
-            })
-
+        wealth = (1.0 + static_returns).cumprod()
+        performance_series = pd.DataFrame({
+            "daily_return": static_returns,
+            "cumulative_return": wealth - 1.0,
+            "drawdown": _drawdown(wealth),
+        })
     actual_performance = {
         "available": False,
         "method": state.get("accounting_history", {}).get("method"),
-        "metrics": {},
-        "portfolio_path": [],
-        "reason": None,
+        "metrics": {}, "portfolio_path": [],
+        "reason": "Account performance requires a separate accounting-price history.",
     }
-    if not ledger_curve.empty and ledger_curve["daily_return"].dropna().shape[0] >= 2:
-        actual_metrics = _series_metrics(
-            ledger_curve["daily_return"],
-            risk_free_rate=risk_free_rate,
-            var_level=var_level,
-        )
-        actual_performance = {
-            "available": True,
-            "method": state.get("accounting_history", {}).get("method"),
-            "metrics": actual_metrics,
-            "portfolio_path": [
-                {
-                    "date": idx.isoformat(),
-                    **{str(column): (float(value) if pd.notna(value) else None) for column, value in row.items()},
-                }
-                for idx, row in ledger_curve.iterrows()
-            ],
-            "reason": None,
-        }
-    elif state.get("accounting_history", {}).get("available"):
-        actual_performance["reason"] = "Dated accounting information was detected, but sufficient historical market prices were not available to reconstruct the path."
 
-    risk_contribution = _risk_contribution(returns, weights)
+    risk_contribution = _risk_contribution(returns, weights) if coverage["available"] else []
 
     gross_exposure = float(state.get("totals", {}).get("gross_exposure") or 0.0)
     holdings_mix = []
@@ -450,7 +474,12 @@ def run_analytics(
         "meta": {
             "var_level": float(var_level),
             "risk_free_rate": float(risk_free_rate),
-            "risk_method": "static signed current-book historical returns; cash is a zero-return residual",
+            "base_currency": state.get("meta", {}).get("base_currency", "USD"),
+            "coverage": coverage,
+            "calendar": "common business-day observations; 252 periods/year",
+            "return_method": "arithmetic annualised mean; geometric return reported separately",
+            "risk_method": "static signed current-book base-currency total returns; base cash has zero return",
+            "simulation": "constant current weights (implied daily rebalancing), not actual buy-and-hold performance",
             "performance_method": performance_method,
             "history_start": price_history.index.min().isoformat() if price_history is not None and not price_history.empty else None,
             "history_end": price_history.index.max().isoformat() if price_history is not None and not price_history.empty else None,
@@ -507,119 +536,6 @@ def run_analytics(
 
 
 #______________________________________________________________________________
-# DATED HOLDINGS SNAPSHOT RECONSTRUCTION
-#______________________________________________________________________________
-
-def _dated_holdings_snapshot_curve(
-    state: dict[str, Any],
-    price_history: pd.DataFrame,
-    fx_history: pd.DataFrame | None = None,
-    base_currency: str = "USD",
-) -> pd.DataFrame:
-    """Reconstruct the currently-held book from purchase dates.
-
-    This is deliberately different from ledger replay. A holdings snapshot does
-    not prove the historical cash ledger. Each current position is therefore
-    absent before its supplied purchase date and is marked to historical market
-    prices afterwards. On its entry day, the first market value is treated as an
-    external capital addition for performance chaining, so the difference
-    between an execution price and Yahoo's daily close cannot manufacture a
-    return. Supplied purchase price remains cost-basis information.
-    """
-    history = state.get("accounting_history", {})
-    if history.get("method") != "reconstructed dated holdings":
-        return pd.DataFrame()
-    trades = pd.DataFrame(history.get("trades", []))
-    if trades.empty or price_history is None or price_history.empty:
-        return pd.DataFrame()
-
-    prices = price_history.copy()
-    prices.columns = [str(c).strip().upper() for c in prices.columns]
-    prices.index = pd.to_datetime(prices.index, errors="coerce").normalize()
-    prices = prices.loc[~prices.index.isna()].sort_index().apply(pd.to_numeric, errors="coerce")
-
-    trades["Date"] = pd.to_datetime(trades["Date"], errors="coerce").dt.normalize()
-    trades["Signed Quantity"] = pd.to_numeric(trades["Signed Quantity"], errors="coerce")
-    trades["Currency"] = trades.get("Currency", base_currency)
-    trades["Currency"] = trades["Currency"].fillna(base_currency).astype(str).str.upper().replace({"": base_currency})
-    trades["Ticker"] = trades["Ticker"].astype(str).str.upper()
-    trades = trades.dropna(subset=["Date", "Ticker", "Signed Quantity"])
-    tickers = sorted(set(trades["Ticker"]) & set(prices.columns))
-    if not tickers:
-        return pd.DataFrame()
-    trades = trades[trades["Ticker"].isin(tickers)].copy()
-
-    first_date = trades["Date"].min()
-    timeline = prices.index[prices.index >= first_date]
-    if timeline.empty:
-        return pd.DataFrame()
-    px = prices.reindex(timeline)[tickers].ffill()
-
-    fx = pd.DataFrame(index=timeline)
-    if fx_history is not None and not fx_history.empty:
-        raw_fx = fx_history.copy()
-        raw_fx.columns = [str(c).strip().upper() for c in raw_fx.columns]
-        raw_fx.index = pd.to_datetime(raw_fx.index, errors="coerce").normalize()
-        raw_fx = raw_fx.loc[~raw_fx.index.isna()].sort_index().apply(pd.to_numeric, errors="coerce")
-        fx = raw_fx.reindex(timeline).ffill()
-    fx[base_currency.upper()] = 1.0
-    if "GBP" in fx.columns and "GBX" not in fx.columns:
-        fx["GBX"] = fx["GBP"] / 100.0
-
-    values = pd.DataFrame(0.0, index=timeline, columns=tickers)
-    entry_flow = pd.Series(0.0, index=timeline, dtype=float)
-
-    for _, row in trades.iterrows():
-        ticker = row["Ticker"]
-        purchase_date = row["Date"]
-        qty = float(row["Signed Quantity"])
-        ccy = str(row.get("Currency") or base_currency).upper()
-        if ccy not in fx.columns:
-            continue
-        rate = fx[ccy]
-        local_value = px[ticker] * qty
-        usd_value = local_value * rate
-        active = timeline >= purchase_date
-        values.loc[active, ticker] = usd_value.loc[active]
-
-        # Neutralise the acquisition in the return series using the first actual
-        # market mark on/after the supplied purchase date, not the execution price.
-        first_marks = usd_value.loc[active].dropna()
-        if not first_marks.empty:
-            entry_flow.at[first_marks.index[0]] += float(first_marks.iloc[0])
-
-    # A holdings snapshot gives only today's cash, not its historical cash ledger.
-    # Keep supplied cash constant as an explicitly approximate balance, matching
-    # the snapshot reconstruction convention rather than inventing cash events.
-    cash_value = float(state.get("cash", {}).get("explicit_snapshot_cash", 0.0) or 0.0)
-    portfolio_value = values.sum(axis=1, min_count=1) + cash_value
-
-    previous = portfolio_value.shift(1)
-    daily_return = (portfolio_value - previous - entry_flow) / previous
-    daily_return.loc[previous.isna() | (previous.abs() < 1e-12)] = np.nan
-    first_valid = portfolio_value.first_valid_index()
-    if first_valid is not None:
-        daily_return.loc[first_valid] = 0.0
-
-    wealth = (1.0 + daily_return.dropna()).cumprod().reindex(timeline)
-    drawdown = wealth / wealth.cummax() - 1.0
-    curve = pd.DataFrame({
-        "cash": cash_value,
-        "market_value": values.sum(axis=1, min_count=1),
-        "equity": portfolio_value,
-        "external_flow": entry_flow,
-        "daily_return": daily_return,
-        "cumulative_return": wealth - 1.0,
-        "drawdown": drawdown,
-    })
-    # Keep per-position USD marks inside deterministic Python so historical
-    # attribution can answer "what caused this drawdown?" without asking the LLM
-    # to infer contribution from headline metrics.
-    for ticker in values.columns:
-        curve[f"position__{ticker}"] = values[ticker]
-    return curve
-
-#______________________________________________________________________________
 # ACCOUNT-PATH PERFORMANCE FROM DATED ACCOUNTING EVENTS
 #______________________________________________________________________________
 
@@ -634,18 +550,21 @@ def run_account_performance(
 ) -> dict[str, Any]:
     """Reconstruct performance from Portfolio State accounting events.
 
-    Transaction ledgers use their supplied executions. Dated holdings use the
-    inferred acquisition events created by Portfolio State from purchase dates
-    and entry prices. The same equity-curve and metric helpers are used for both.
+    Ledgers use contemporaneous marks, supplied executions/dividends and split
+    events. Dated snapshots use split-adjusted closes and current share quantities;
+    entry marks are neutralised and historical currency cash balances approximated.
     """
     history = state.get("accounting_history", {})
     if not history.get("available"):
         return {"available": False, "method": history.get("method"), "metrics": {}, "portfolio_path": [], "reason": "No dated accounting history is available."}
 
-    if history.get("method") == "reconstructed dated holdings":
-        curve = _dated_holdings_snapshot_curve(state, price_history, fx_history=fx_history, base_currency=base_currency)
-    else:
-        curve = _ledger_equity_curve(state, price_history, fx_history=fx_history, base_currency=base_currency)
+    try:
+        if history.get("method") == "reconstructed dated holdings":
+            curve = _dated_holdings_snapshot_curve(state, price_history, fx_history=fx_history, base_currency=base_currency)
+        else:
+            curve = _ledger_equity_curve(state, price_history, fx_history=fx_history, base_currency=base_currency)
+    except ValueError as exc:
+        return {"available": False, "method": history.get("method"), "metrics": {}, "portfolio_path": [], "reason": str(exc)}
     if curve.empty or curve["daily_return"].dropna().shape[0] < 2:
         return {
             "available": False,
@@ -672,7 +591,9 @@ def run_account_performance(
         "external_withdrawals": external_withdrawals,
         "net_external_flow": net_external_flow,
         "ending_equity": ending_equity,
-        "gain_after_external_flows": (ending_equity - net_external_flow) if ending_equity is not None else None,
+        "opening_capital": float(curve.attrs.get("opening_capital", 0.0)),
+        "gain_after_external_flows": (ending_equity - net_external_flow - float(curve.attrs.get("opening_capital", 0))) if ending_equity is not None else None,
+        "cash_flow_timing": curve.attrs.get("cash_flow_timing"),
     }
 
     return {
@@ -697,49 +618,31 @@ def run_account_performance(
 # HISTORICAL ATTRIBUTION
 #______________________________________________________________________________
 
-def historical_attribution(
-    actual_performance: dict[str, Any],
-    *,
-    start_date: str | None = None,
-    end_date: str | None = None,
-    analysis_mode: str = "drawdown",
-) -> dict[str, Any]:
-    """Deterministically explain a dated holdings period or drawdown.
-
-    Attribution uses reconstructed USD position marks. Daily position returns are
-    multiplied by prior-day portfolio weights, so capital entering the portfolio
-    is not labelled as investment performance. Results are descriptive historical
-    attribution, not causal claims about news or company fundamentals.
-    """
+def historical_attribution(actual_performance: dict[str, Any], *, start_date: str | None = None,
+                           end_date: str | None = None, analysis_mode: str = "drawdown") -> dict[str, Any]:
+    """Link position P&L / prior account equity to the exact selected period return."""
     if not actual_performance.get("available"):
-        return {"available": False, "reason": "Actual/reconstructed portfolio history is unavailable."}
-
-    records = actual_performance.get("portfolio_path", [])
-    if not records:
-        return {"available": False, "reason": "No reconstructed portfolio path is available."}
-
-    frame = pd.DataFrame(records)
+        return {"available": False, "reason": "Account history is unavailable."}
+    frame = pd.DataFrame(actual_performance.get("portfolio_path", []))
     if frame.empty or "date" not in frame:
-        return {"available": False, "reason": "No dated reconstructed observations are available."}
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    frame = frame.dropna(subset=["date"]).set_index("date").sort_index()
-
+        return {"available": False, "reason": "No account path is available."}
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame = frame.set_index("date").sort_index()
     start = pd.to_datetime(start_date, errors="coerce") if start_date else frame.index.min()
     end = pd.to_datetime(end_date, errors="coerce") if end_date else frame.index.max()
     if pd.isna(start) or pd.isna(end):
-        return {"available": False, "reason": "The requested historical dates could not be interpreted."}
-    if start > end:
-        start, end = end, start
-
-    window = frame.loc[(frame.index >= start) & (frame.index <= end)].copy()
-    if window.shape[0] < 2:
-        return {"available": False, "reason": "There are not enough reconstructed observations in the requested period."}
-
-    daily = pd.to_numeric(window.get("daily_return"), errors="coerce")
-    wealth = (1.0 + daily.fillna(0.0)).cumprod()
-    running_peak = wealth.cummax()
-    dd = wealth / running_peak - 1.0
-
+        return {"available": False, "reason": "Invalid attribution dates."}
+    start, end = min(start, end), max(start, end)
+    window = frame.loc[start:end].copy()
+    if len(window) < 2:
+        return {"available": False, "reason": "At least two valuations are required."}
+    daily = pd.to_numeric(window["daily_return"], errors="coerce")
+    # Return from the first selected valuation to the last; no pre-window return.
+    daily.iloc[0] = 0.0
+    if daily.isna().any() or (daily <= -1).any():
+        return {"available": False, "reason": "Incomplete or invalid account returns in attribution window."}
+    wealth = (1 + daily).cumprod()
+    dd = _drawdown(wealth)
     mode = str(analysis_mode or "drawdown").lower()
     if mode in {"drawdown", "drawdown_attribution"}:
         trough = dd.idxmin()
@@ -747,59 +650,55 @@ def historical_attribution(
         attr_start, attr_end = peak, trough
     else:
         attr_start, attr_end = window.index.min(), window.index.max()
-
-    pos_cols = [c for c in frame.columns if str(c).startswith("position__")]
-    if not pos_cols:
-        return {"available": False, "reason": "Per-position reconstructed values are unavailable for attribution."}
-
-    segment = frame.loc[(frame.index >= attr_start) & (frame.index <= attr_end), pos_cols].apply(pd.to_numeric, errors="coerce")
-    segment = segment.fillna(0.0)
-    if segment.shape[0] < 2:
-        return {"available": False, "reason": "The selected attribution interval is too short."}
-
-    position_returns = segment.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan)
-    prior_values = segment.shift(1)
-    prior_total = prior_values.sum(axis=1).replace(0.0, np.nan)
-    weights = prior_values.div(prior_total, axis=0)
-    contributions = (weights * position_returns).fillna(0.0)
-
-    # A new position has zero prior value. Its first mark is therefore naturally
-    # excluded from return attribution rather than being treated as profit/loss.
-    summed = contributions.sum(axis=0)
-    rows = []
-    for column, contribution in summed.items():
-        ticker = str(column).replace("position__", "", 1)
-        start_value = float(segment[column].iloc[0])
-        end_value = float(segment[column].iloc[-1])
-        ticker_return = None
-        if abs(start_value) > 1e-12:
-            ticker_return = end_value / start_value - 1.0
-        rows.append({
-            "ticker": ticker,
-            "contribution_pct_points": float(contribution * 100.0),
-            "start_value_usd": start_value,
-            "end_value_usd": end_value,
-            "period_return_pct": (float(ticker_return * 100.0) if ticker_return is not None else None),
-        })
-    rows.sort(key=lambda x: x["contribution_pct_points"])
-
-    period_return = float(wealth.iloc[-1] - 1.0)
-    drawdown_value = float(dd.min())
+    segment = frame.loc[attr_start:attr_end].copy()
+    cols = [c for c in segment if str(c).startswith("position__")]
+    if not cols or len(segment) < 2:
+        return {"available": False, "reason": "No non-zero attribution interval with position values is available."}
+    r = pd.to_numeric(segment["daily_return"].iloc[1:], errors="coerce")
+    previous_equity = pd.to_numeric(segment["equity"], errors="coerce").shift(1).iloc[1:]
+    if r.isna().any() or previous_equity.le(0).any():
+        return {"available": False, "reason": "Positive prior account equity and complete returns are required."}
+    account_wealth = (1 + r).cumprod()
+    link = account_wealth.shift(1).fillna(1.0)
+    rows, daily_contributions = [], pd.DataFrame(index=r.index)
+    for column in cols:
+        ticker = column.removeprefix("position__")
+        pnl_column = f"pnl__{ticker}"
+        marks = pd.to_numeric(segment[column], errors="coerce")
+        if pnl_column in segment:
+            pnl = pd.to_numeric(segment[pnl_column], errors="coerce").iloc[1:]
+        else:
+            # Legacy paths contain no trade information; exclude first acquisition mark.
+            pnl = marks.diff().where(marks.shift(1).ne(0), 0).iloc[1:]
+        if marks.isna().any() or pnl.isna().any():
+            return {"available": False, "reason": f"Incomplete attribution marks for {ticker}."}
+        contribution = pnl / previous_equity
+        daily_contributions[ticker] = contribution
+        start_value, end_value = float(marks.iloc[0]), float(marks.iloc[-1])
+        rows.append({"ticker": ticker, "contribution_pct_points": float((contribution * link).sum() * 100),
+                     "start_value_usd": start_value, "end_value_usd": end_value,
+                     "period_return_pct": (end_value / start_value - 1) * 100 if start_value > 0 else None})
+    rows.sort(key=lambda row: row["contribution_pct_points"])
+    residual = r - daily_contributions.sum(axis=1)
+    residual_pp = float((residual * link).sum() * 100)
+    attr_return = float(account_wealth.iloc[-1] - 1)
+    total_pp = sum(row["contribution_pct_points"] for row in rows) + residual_pp
     return {
-        "available": True,
-        "analysis_mode": mode,
+        "available": True, "analysis_mode": mode,
         "requested_period": {"start": start.date().isoformat(), "end": end.date().isoformat()},
         "attribution_period": {"start": attr_start.date().isoformat(), "end": attr_end.date().isoformat()},
-        "period_return_pct": period_return * 100.0,
-        "max_drawdown_pct": drawdown_value * 100.0,
-        "largest_negative_contributors": rows[:10],
-        "largest_positive_contributors": list(reversed(rows[-10:])),
-        "method": "prior-day reconstructed USD position weight × daily USD position return",
-        "limitations": [
-            "Attribution covers currently-held positions with supplied purchase dates.",
-            "Positions sold before the uploaded holdings snapshot cannot be reconstructed.",
-            "Contribution identifies which holdings drove portfolio return; it does not infer news or fundamental causes.",
-        ],
+        "period_return_pct": float((wealth.iloc[-1] - 1) * 100),
+        "attribution_return_pct": attr_return * 100,
+        "max_drawdown_pct": float(dd.min() * 100),
+        "contributors": rows,
+        "largest_negative_contributors": [row for row in rows if row["contribution_pct_points"] < 0][:10],
+        "largest_positive_contributors": [row for row in reversed(rows) if row["contribution_pct_points"] > 0][:10],
+        "cash_and_other_contribution_pct_points": residual_pp,
+        "reconciliation_error_pct_points": total_pp - attr_return * 100,
+        "method": "position P&L / prior account equity; daily contributions linked by prior cumulative wealth",
+        "limitations": ["Snapshot history covers current holdings only; historical cash balances are approximated.",
+                        "Cash FX, dividends not assigned to a ticker and other account effects appear in the explicit residual.",
+                        "Attribution describes portfolio arithmetic and does not infer news or fundamental causes."],
     }
 
 
@@ -840,7 +739,8 @@ def run_current_book_risk(
     clean_returns.columns = [str(c).strip().upper() for c in clean_returns.columns]
     tickers = [str(row.get("ticker") or "").upper() for row in state.get("positions", [])]
     weights = _current_signed_weights(state, list(clean_returns.columns))
-    portfolio_returns = _static_portfolio_returns(clean_returns, weights)
+    coverage = _coverage(state, clean_returns)
+    portfolio_returns = _static_portfolio_returns(clean_returns, weights) if coverage["available"] else pd.Series(dtype=float)
     risk = _series_metrics(portfolio_returns, risk_free_rate=risk_free_rate, var_level=var_level)
     equity = float(state.get("totals", {}).get("equity") or 0.0)
     risk["var_value"] = abs(equity) * float(risk["var_pct"]) if risk.get("var_pct") is not None else None
@@ -866,8 +766,15 @@ def run_current_book_risk(
         })
 
     return {
+        "coverage": coverage,
+        "meta": {"coverage": coverage, "base_currency": state.get("meta", {}).get("base_currency", "USD"),
+                 "risk_free_rate": risk_free_rate, "var_level": var_level},
+        "engine_data": {"asset_returns": {
+            ticker: [{"date": date.isoformat(), "return": float(value)} for date, value in clean_returns[ticker].dropna().items()]
+            for ticker in clean_returns.columns
+        }},
         "risk": risk,
-        "risk_contribution": _risk_contribution(clean_returns, weights),
+        "risk_contribution": _risk_contribution(clean_returns, weights) if coverage["available"] else [],
         "holdings_mix": holdings_mix,
         "correlation": _correlation_matrix(clean_returns, tickers),
         "weights": {str(k): float(v) for k, v in weights.items()},

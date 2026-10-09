@@ -4,10 +4,51 @@ Network access is isolated here. Accounting receives deterministic FX series.
 """
 from __future__ import annotations
 from typing import Any
+import numpy as np
 import pandas as pd
 from portfolio_analytics.core.market_data import _import_yfinance, _extract_close
 
 BASE_CURRENCY = "USD"
+
+
+def aligned_fx(history: pd.DataFrame | None, dates: pd.DatetimeIndex, base: str = BASE_CURRENCY) -> pd.DataFrame:
+    """Align FX without look-ahead. GBX means GBP/100, never GBP."""
+    dates = pd.DatetimeIndex(dates).normalize()
+    result = pd.DataFrame(index=dates)
+    if history is not None and not history.empty:
+        source = history.copy()
+        source.index = pd.to_datetime(source.index).normalize()
+        source.columns = [str(c).upper() for c in source.columns]
+        source = source.groupby(level=0).last().sort_index().apply(pd.to_numeric, errors="coerce")
+        source = source.where(np.isfinite(source) & source.gt(0))
+        result = source.reindex(source.index.union(dates)).ffill().reindex(dates)
+    result[base.upper()] = 1.0
+    if "GBP" in result:
+        result["GBX"] = result["GBP"] / 100.0
+    return result
+
+
+def fx_rate(currency: str, *, date: Any = None, history: pd.DataFrame | None = None,
+            latest: dict[str, float] | None = None, base: str = BASE_CURRENCY) -> float:
+    currency = str(currency or base).upper()
+    if currency == base.upper():
+        return 1.0
+    if date is not None and pd.notna(date):
+        frame = aligned_fx(history, pd.DatetimeIndex([pd.Timestamp(date)]), base)
+        rate = frame[currency].iloc[0] if currency in frame else np.nan
+    else:
+        rates = {str(k).upper(): v for k, v in (latest or {}).items()}
+        if history is not None and not history.empty:
+            for column in history:
+                valid = pd.to_numeric(history[column], errors="coerce").dropna()
+                if not valid.empty:
+                    rates.setdefault(str(column).upper(), float(valid.iloc[-1]))
+        if "GBP" in rates:
+            rates.setdefault("GBX", float(rates["GBP"]) / 100.0)
+        rate = rates.get(currency, np.nan)
+    if not np.isfinite(rate) or rate <= 0:
+        raise ValueError(f"Missing {currency}/{base} FX rate" + (f" on {pd.Timestamp(date).date()}" if date is not None else " for valuation"))
+    return float(rate)
 
 def _pair_ticker(currency: str, base: str = BASE_CURRENCY) -> str:
     return f"{currency.upper()}{base.upper()}=X"

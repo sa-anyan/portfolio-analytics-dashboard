@@ -239,8 +239,8 @@ def cached_price_history(tickers: tuple[str, ...], period: str):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def cached_dated_price_history(tickers: tuple[str, ...], start_date: str):
-    return fetch_price_history(list(tickers), start=start_date)
+def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting"):
+    return fetch_price_history(list(tickers), start=start_date, price_basis=price_basis)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_fx_history(currencies: tuple[str, ...], start_date: str):
@@ -349,6 +349,8 @@ with main_col:
         horizontal=True,
     )
 
+    st.caption("Use the listing's quote currency (GBX for pence). Holdings snapshots use current shares and cost per current share; ledger rows use original execution quantities/prices. Starting cash is USD.")
+
     settings_col1, settings_col2, settings_col3 = st.columns(3)
     with settings_col1:
         starting_cash = st.number_input("Starting / current cash", value=0.0, step=1000.0)
@@ -387,6 +389,8 @@ with main_col:
             )
     else:
         st.caption("Enter holdings directly. Positive quantity = long; negative quantity = short. Entry price and current price are optional when live valuation is enabled.")
+        if "Currency" not in st.session_state.manual_rows:
+            st.session_state.manual_rows["Currency"] = "USD"
         manual_frame = st.data_editor(
             st.session_state.manual_rows,
             num_rows="dynamic",
@@ -397,6 +401,7 @@ with main_col:
                 "Quantity": st.column_config.NumberColumn(format="%.6f"),
                 "Average Entry Price": st.column_config.NumberColumn(format="%.4f"),
                 "Current Price": st.column_config.NumberColumn(format="%.4f"),
+                "Currency": st.column_config.TextColumn(help="Quote currency, e.g. USD, EUR, GBP or GBX (pence)."),
                 "Asset Class": st.column_config.TextColumn(),
                 "Duration": st.column_config.NumberColumn(help="Optional modified duration for rate scenarios."),
                 "Rate Sensitivity": st.column_config.NumberColumn(help="Optional % price change for a +100 bp rate move."),
@@ -431,29 +436,35 @@ with main_col:
                     market_prices, latest_meta = cached_latest_prices(market_tickers)
                 latest_prices.update(market_prices)
 
-            state = build_portfolio_state(parsed, latest_prices=latest_prices, market_metadata=latest_meta)
-
-            with st.spinner("Fetching historical prices and running analytics..."):
+            with st.spinner("Fetching market and currency history..."):
                 history, history_meta = cached_price_history(market_tickers, history_period)
-                analytics = run_analytics(state, history)
-
-                accounting_history = state.get("accounting_history", {})
-                if accounting_history.get("available"):
-                    dated_events = accounting_history.get("trades", []) + accounting_history.get("cashflows", [])
-                    dated_values = [pd.to_datetime(row.get("Date"), errors="coerce") for row in dated_events]
-                    dated_values = [d for d in dated_values if pd.notna(d)]
-                    if dated_values:
-                        start_date = min(dated_values).date().isoformat()
-                        actual_history, actual_history_meta = cached_dated_price_history(market_tickers, start_date)
-                        currencies = tuple(sorted({
-                            str(row.get("Currency") or "USD").upper()
-                            for row in accounting_history.get("trades", [])
-                        }))
-                        fx_history, fx_meta = cached_fx_history(currencies, start_date)
-                        analytics["actual_performance"] = run_account_performance(
-                            state, actual_history, fx_history=fx_history, base_currency="USD"
-                        )
-                        history_meta = {**history_meta, "actual_performance": actual_history_meta, "fx": fx_meta}
+                normalised = parsed.get("normalised_dataset", {})
+                records = normalised.get("holdings", []) + normalised.get("ledger", []) + normalised.get("cashflows", [])
+                currencies = tuple(sorted({str(row.get("Currency") or "USD").upper() for row in records}))
+                dated_values = [pd.to_datetime(row.get("Date", row.get("Purchase Date")), errors="coerce") for row in records]
+                dated_values = [d for d in dated_values if pd.notna(d)]
+                starts = dated_values + ([history.index.min()] if not history.empty else [])
+                earliest = min(starts) if starts else pd.Timestamp.today()
+                # Include prior FX observations for holidays/weekend acquisitions.
+                fx_start = (earliest - pd.Timedelta(days=7)).date().isoformat()
+                fx_history, fx_meta = cached_fx_history(currencies, fx_start)
+                actual_history, actual_meta = pd.DataFrame(), {}
+                if dated_values:
+                    price_basis = "accounting" if parsed["classification"] == "ledger" else "split_adjusted_close"
+                    actual_history, actual_meta = cached_dated_price_history(market_tickers, min(dated_values).date().isoformat(), price_basis)
+                state = build_portfolio_state(
+                    parsed, latest_prices=latest_prices, market_metadata=latest_meta,
+                    fx_history=fx_history, split_history=actual_history.attrs.get("splits"),
+                )
+                analytics = run_analytics(state, history, fx_history=fx_history)
+                if state.get("accounting_history", {}).get("available"):
+                    analytics["actual_performance"] = run_account_performance(state, actual_history, fx_history=fx_history)
+                history_meta = {**history_meta, "actual_performance": actual_meta, "fx": fx_meta}
+                coverage = analytics.get("meta", {}).get("coverage", {})
+                if not coverage.get("available", True):
+                    st.warning("Portfolio risk is unavailable: " + str(coverage.get("reason")))
+                for warning in state.get("meta", {}).get("warnings", []):
+                    st.warning(warning)
 
             st.session_state.parsed = parsed
             st.session_state.portfolio_state = state
@@ -560,6 +571,7 @@ with main_col:
 
         st.divider()
         st.subheader("3. Portfolio Analytics")
+        st.caption("All monetary values and scenario prices are in USD. Quote currencies come from the input; missing Currency is assumed USD. GBX denotes pence.")
         st.markdown('<div class="pa-section-note">Accepted portfolio · deterministic analytics from the current Portfolio State.</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="pa-kpi-group-label">PORTFOLIO SUMMARY</div>', unsafe_allow_html=True)
@@ -577,8 +589,14 @@ with main_col:
         section_header(
             "Risk Snapshot",
             "RISK & DOWNSIDE",
-            "VaR and Expected Shortfall are 1-day historical measures at 95% confidence. Volatility is annualised from daily returns using 252 trading days; max drawdown covers the selected historical window.",
+            "VaR and Expected Shortfall are 1-business-day historical measures at 95% confidence, in USD. Volatility uses 252 business-day observations/year; max drawdown covers the selected history. Current-weight simulation assumes daily rebalancing and zero base-cash interest.",
         )
+        coverage = analytics.get("meta", {}).get("coverage", {})
+        if not coverage.get("available", True):
+            st.warning("Full-portfolio risk withheld: " + str(coverage.get("reason")))
+        st.caption(f"Base currency: USD · Common observations: {coverage.get('common_observations', 0)} · Tail observations: {risk.get('tail_observations', 0)} · Risk-free rate: {percent(analytics.get('meta', {}).get('risk_free_rate', 0))}.")
+        if risk.get("tail_observations", 0) < 20:
+            st.caption("The historical tail sample is small; VaR and ES estimates have substantial sampling uncertainty.")
         r2 = st.columns(4)
         with r2[0]:
             metric_percent("Annualised Volatility", risk.get("annual_volatility"), help="Annualised from daily historical returns using 252 trading days.", tone="risk")
@@ -599,6 +617,9 @@ with main_col:
             insight_box(insights.get("holdings", ""))
         with chart2:
             st.plotly_chart(risk_contribution_donut(analytics), use_container_width=True, config={"displaylogo": False})
+            st.caption("Slices show absolute normalised contributions. A negative signed contribution is a hedge; see the table.")
+            if analytics.get("risk_contribution"):
+                st.dataframe(pd.DataFrame(analytics["risk_contribution"])[["ticker", "risk_contribution_pct", "absolute_risk_share"]], hide_index=True, use_container_width=True)
             insight_box(insights.get("risk_contribution", ""))
 
         section_header("Historical Behaviour", "PERFORMANCE THROUGH TIME", "Portfolio growth and peak-to-trough drawdown across the selected historical window.")
@@ -607,7 +628,7 @@ with main_col:
         show_actual = False
         if has_dated_history:
             show_actual = st.toggle(
-                "View your actual portfolio performance",
+                "View dated account / reconstructed holdings history",
                 value=False,
                 key="show_actual_portfolio_performance",
                 help="Switch between the historical simulation of today's holdings and the dated portfolio path reconstructed from supplied purchase dates/prices or transaction executions.",
@@ -615,9 +636,9 @@ with main_col:
             if show_actual and actual.get("available"):
                 method = str(actual.get("method") or "dated accounting history")
                 if method == "reconstructed dated holdings":
-                    st.caption("Reconstructed from the supplied purchase dates and quantities using historical market prices and FX. Each current position appears only from its purchase date. Purchase prices remain cost-basis information; position entry is neutralised at its first market mark so it is not mistaken for investment return. Previously sold positions and historical cash movements cannot be inferred from a holdings snapshot.")
+                    st.caption("Reconstructed from the supplied purchase dates and quantities using historical market prices and FX. Each current position appears only from its purchase date; quantities are interpreted as current, split-adjusted shares. Historical cash is approximated by constant currency balances and dividends are excluded from this price-only reconstruction. Purchase prices remain cost-basis information; position entry is neutralised at its first market mark so it is not mistaken for investment return. Previously sold positions and historical cash movements cannot be inferred from a holdings snapshot.")
                 else:
-                    st.caption("Reconstructed from the dated transaction ledger and supplied execution prices. External deposits and withdrawals are separated from investment return.")
+                    st.caption("Reconstructed from the dated transaction ledger and supplied execution prices. External deposits and withdrawals use an end-of-day timing convention. Cash stays in its stated currency; supplied dividend cash flows are included once. Missing dividend records mean income is incomplete.")
             elif show_actual:
                 st.info(actual.get("reason") or "Dated portfolio information was detected, but the reconstructed performance path is unavailable.")
 
@@ -713,6 +734,7 @@ with main_col:
                     )
 
             if combination_risk.get("available"):
+                st.caption(f"All combinations share {combination_risk.get('common_observations', 0)} observations, from {combination_risk.get('common_history_start', '')} to {combination_risk.get('common_history_end', '')}.")
                 metric_labels = {
                     "Annual volatility": "annual_volatility",
                     "Maximum drawdown": "max_drawdown",
@@ -753,11 +775,12 @@ with main_col:
                     result_df = pd.DataFrame(combination_risk.get("results", []))
                     if not result_df.empty:
                         display = result_df[[
-                            "label", "observations", "annual_return", "annual_volatility",
+                            "label", "observations", "annual_return", "geometric_annual_return", "annual_volatility",
                             "max_drawdown", "var_pct", "expected_shortfall_pct"
                         ]].copy()
-                        for col in ["annual_return", "annual_volatility", "max_drawdown", "var_pct", "expected_shortfall_pct"]:
+                        for col in ["annual_return", "geometric_annual_return", "annual_volatility", "max_drawdown", "var_pct", "expected_shortfall_pct"]:
                             display[col] = display[col].map(lambda x: f"{float(x)*100:.2f}%" if pd.notna(x) else "—")
+                        display = display.rename(columns={"annual_return": "Arithmetic annualised mean", "geometric_annual_return": "Geometric annualised return"})
                         st.dataframe(display, use_container_width=True, hide_index=True)
             else:
                 st.info(combination_risk.get("reason") or "Combination analysis is unavailable for this selection.")
