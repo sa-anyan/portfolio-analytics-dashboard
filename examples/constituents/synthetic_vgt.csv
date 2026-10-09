@@ -1,0 +1,4 @@
+Parent Fund,Constituent Ticker,Constituent ISIN,Constituent Name,Weight,Weight Format,As Of Date,Source,Asset Class,Currency
+VGT,NVDA,US67066G1040,Nvidia,20,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings,Equity,USD
+VGT,AAPL,US0378331005,Apple,30,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings,Equity,USD
+VGT,MSFT,US5949181045,Microsoft,50,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings,Equity,USD
