@@ -212,7 +212,7 @@ def route_question(
 
     prompt = (
         "PORTFOLIO CONTEXT:\n"
-        + json.dumps(context, default=str, separators=(",", ":"))
+        + json.dumps(_provider_evidence(_remove_private_identifiers(context)), default=str, separators=(",", ":"))
         + "\n\nRECENT CONVERSATION:\n"
         + json.dumps(recent, separators=(",", ":"))
         + "\n\nUSER QUESTION:\n"
@@ -427,7 +427,7 @@ def explain_result(
         "USER QUESTION:\n"
         + str(question)
         + "\n\nDETERMINISTIC RESULT:\n"
-        + json.dumps(result, default=str, indent=2)
+        + json.dumps(_provider_evidence(_remove_private_identifiers(result)), default=str, separators=(",", ":"))
     )
     response = _provider_response(api_key,
         model=model,
@@ -439,6 +439,29 @@ def explain_result(
     if not text:
         raise RuntimeError("OpenAI returned an empty explanation.")
     return text
+
+
+def _provider_evidence(value: Any) -> Any:
+    """Transport copy: omit chart/model matrices, preserve financial evidence.
+
+The full deterministic context is still used for validation/execution. Omitted
+series are explicitly identified, never described as complete supplied history.
+"""
+    if isinstance(value, dict):
+        output = {}
+        for key,item in value.items():
+            if key in {'engine_data', 'scenario_baseline', 'normalised_dataset', 'user_dataset'}:
+                continue
+            if key == 'series' and isinstance(item, dict):
+                output['chart_series_not_submitted'] = {
+                    str(name): len(points) for name,points in item.items() if isinstance(points, list)
+                }
+            else:
+                output[key] = _provider_evidence(item)
+        return output
+    if isinstance(value, list):
+        return [_provider_evidence(item) for item in value]
+    return value
 
 
 #______________________________________________________________________________

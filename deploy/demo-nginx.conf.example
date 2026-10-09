@@ -1,0 +1,97 @@
+# TEMPLATE ONLY. Install in http{}, replace hostname/cert paths, run nginx -t.
+# Requires ngx_http_auth_request_module. Direct TCP ingress, NO real_ip_header,
+# set_real_ip_from, CDN or unverified load balancer: $remote_addr is the TCP peer.
+map $http_upgrade $demo_connection { default upgrade; '' close; }
+map $server_name $demo_global { default portfolio-demo; }
+limit_req_zone $demo_global zone=demo_rate:1m rate=5r/s;
+limit_conn_zone $demo_global zone=demo_sessions:1m;
+limit_conn_zone $binary_remote_addr zone=demo_network:1m;
+log_format demo_minimal '$status $request_time';
+server {
+    listen 80;
+    server_name demo.example.invalid;
+    return 301 https://demo.example.invalid$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name demo.example.invalid;
+    ssl_certificate /etc/letsencrypt/live/demo.example.invalid/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/demo.example.invalid/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 6m;
+    client_header_timeout 15s;
+    client_body_timeout 30s;
+    limit_req_status 429;
+    limit_conn_status 429;
+    access_log /var/log/nginx/demo.access.log demo_minimal;
+    error_log /var/log/nginx/demo.error.log crit;
+    location = /_demo_sign {
+        internal;
+        proxy_pass http://127.0.0.1:8502/sign;
+        proxy_pass_request_body off;
+        proxy_pass_request_headers off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Ingress-Peer $remote_addr;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 2s;
+        access_log off;
+    }
+    location / {
+        limit_req zone=demo_rate burst=20 nodelay;
+        auth_request /_demo_sign;
+        auth_request_set $demo_ip $upstream_http_x_demo_ip;
+        auth_request_set $demo_time $upstream_http_x_demo_time;
+        auth_request_set $demo_signature $upstream_http_x_demo_signature;
+        proxy_pass http://127.0.0.1:8501;
+        proxy_http_version 1.1;
+        proxy_set_header Host demo.example.invalid;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Ingress-Peer "";
+        proxy_set_header X-Demo-IP $demo_ip;
+        proxy_set_header X-Demo-Time $demo_time;
+        proxy_set_header X-Demo-Signature $demo_signature;
+        proxy_hide_header X-Demo-IP;
+        proxy_hide_header X-Demo-Time;
+        proxy_hide_header X-Demo-Signature;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $demo_connection;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 30s;
+        proxy_buffering off;
+    }
+    location = /_stcore/stream {
+        limit_req zone=demo_rate burst=5 nodelay;
+        limit_conn demo_sessions 5;
+        limit_conn demo_network 2;
+        auth_request /_demo_sign;
+        auth_request_set $demo_ip $upstream_http_x_demo_ip;
+        auth_request_set $demo_time $upstream_http_x_demo_time;
+        auth_request_set $demo_signature $upstream_http_x_demo_signature;
+        proxy_pass http://127.0.0.1:8501;
+        proxy_http_version 1.1;
+        proxy_set_header Host demo.example.invalid;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Ingress-Peer "";
+        proxy_set_header X-Demo-IP $demo_ip;
+        proxy_set_header X-Demo-Time $demo_time;
+        proxy_set_header X-Demo-Signature $demo_signature;
+        proxy_hide_header X-Demo-IP;
+        proxy_hide_header X-Demo-Time;
+        proxy_hide_header X-Demo-Signature;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $demo_connection;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 30s;
+        proxy_buffering off;
+    }
+}
+# Limits on HTTP requests do not throttle messages inside an upgraded WebSocket.
+# Existing parser/Streamlit caps + systemd hard process caps are also mandatory.
