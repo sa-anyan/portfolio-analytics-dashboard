@@ -1,6 +1,7 @@
 """Ingestion review workspace for Phase 2B-1; accepted analytics stay separate."""
 from copy import deepcopy
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 from portfolio_analytics.input_engine.batch import ingest_files, apply_account_assignments, append_files
@@ -26,9 +27,12 @@ def render_ingestion(prepare=None, *, use_live_prices=True, history_period="3y",
         if not uploaded:
             st.warning("Choose at least one account file.")
         else:
-            batch = ingest_files([(f.name, f.getvalue()) for f in uploaded])
-            st.session_state["consolidation_batch"] = batch
-            st.rerun()
+            try:
+                batch = ingest_files([(f.name, f.getvalue()) for f in uploaded])
+                st.session_state["consolidation_batch"] = batch
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
     batch = st.session_state.get("consolidation_batch")
     if not batch:
         return
@@ -37,8 +41,11 @@ def render_ingestion(prepare=None, *, use_live_prices=True, history_period="3y",
         if not uploaded:
             st.warning("Choose account files to add.")
         else:
-            st.session_state["consolidation_batch"] = append_files(batch, [(f.name, f.getvalue()) for f in uploaded])
-            st.rerun()
+            try:
+                st.session_state["consolidation_batch"] = append_files(batch, [(f.name, f.getvalue()) for f in uploaded])
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
     summary = batch["summary"]
     st.markdown("**Staged import review**")
     st.caption(f"{summary['files']} files · {len(summary['accounts'])} identified accounts · {summary['holdings']} holdings · {summary['transactions']} transactions · {summary['cashflows']} cash flows · {summary['unresolved_assignments']} unresolved account assignments")
@@ -51,15 +58,15 @@ def render_ingestion(prepare=None, *, use_live_prices=True, history_period="3y",
             rows.append({"File": item["filename"], "Source ID": item["source_id"], "Account": "Unresolved", "Format": "Unsupported", "Rows": item["row_count"], "Status": item["status"]})
         for part in item["parts"]:
             rows.append({"File": item["filename"], "Source ID": item["source_id"], "Account": part["account_id"] or "Unresolved", "Format": part["parsed"]["classification"], "Rows": len(part["source_rows"]), "Status": item["status"]})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    safe_dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
     if issues:
         st.warning(f"{summary['blocked_files']} files have parsing errors. They remain staged for inspection and cannot become an accepted portfolio.")
         with st.expander("Parsing exceptions and unsupported records"):
-            st.dataframe(pd.DataFrame(issues), hide_index=True, use_container_width=True)
+            safe_dataframe(pd.DataFrame(issues), hide_index=True, use_container_width=True)
             for item in batch["files"]:
                 if item["status"] == "blocked" and item["raw_records"]:
                     st.caption(f"Original rows retained for {item['filename']}; unsupported rows are not silently discarded.")
-                    st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_provenance"} for r in item["raw_records"]]), hide_index=True, use_container_width=True)
+                    safe_dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_provenance"} for r in item["raw_records"]]), hide_index=True, use_container_width=True)
     with st.expander("Correct account assignments", expanded=summary["unresolved_assignments"] > 0):
         assignments = {}
         for item in batch["files"]:
@@ -79,7 +86,7 @@ def render_ingestion(prepare=None, *, use_live_prices=True, history_period="3y",
                 for kind, records in part["parsed"]["normalised_dataset"].items():
                     if records:
                         st.caption(kind.title())
-                        st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_provenance"} for r in records]), hide_index=True, use_container_width=True)
+                        safe_dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_provenance"} for r in records]), hide_index=True, use_container_width=True)
     render_duplicate_review(batch)
     if prepare is not None:
         from portfolio_analytics.ui.consolidation_acceptance import render_acceptance

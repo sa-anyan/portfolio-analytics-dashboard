@@ -92,6 +92,7 @@ def fetch_latest_prices(tickers: list[str]) -> tuple[dict[str, float], dict[str,
         progress=False,
         group_by="column",
         threads=True,
+        timeout=15,
     )
     close = _extract_close(downloaded, ordered, prefer_adjusted=False)
 
@@ -141,7 +142,7 @@ def fetch_price_history(
         "auto_adjust": False,
         "progress": False,
         "group_by": "column",
-        "threads": True,
+        "threads": True, "timeout": 15,
         "actions": True,
     }
     if start is not None:

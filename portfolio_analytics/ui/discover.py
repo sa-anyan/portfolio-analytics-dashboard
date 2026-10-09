@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 from portfolio_analytics.scenarios.engine import run_scenario
@@ -34,20 +35,20 @@ def _finding(finding: dict, deep: dict) -> None:
     with st.expander(f"Evidence and calculations · {title}"):
         st.caption("Evidence from the accepted portfolio and deterministic analytics engine.")
         evidence = finding.get("evidence", {})
-        st.dataframe(pd.DataFrame([{"Measure": key.replace("_", " "), "Value": str(value)}
+        safe_dataframe(pd.DataFrame([{"Measure": key.replace("_", " "), "Value": str(value)}
                                   for key, value in evidence.items()]), hide_index=True, use_container_width=True)
         if identifier == "direct_concentration":
             c = deep.get("concentration", {})
             st.caption(c.get("method", ""))
             st.caption("Shares are fractions: 0.85 means 85%. HHI uses the 0–1 scale. Cash is excluded.")
-            st.dataframe(pd.DataFrame(c.get("holdings", [])), hide_index=True, use_container_width=True)
+            safe_dataframe(pd.DataFrame(c.get("holdings", [])), hide_index=True, use_container_width=True)
         if identifier in {"risk_driver", "capital_vs_risk"}:
             ranked = deep.get("risk_interpretation", {}).get("ranked_contributors", [])
             frame = pd.DataFrame(ranked)
             if not frame.empty:
                 columns = ["ticker", "signed_equity_weight", "gross_security_exposure_share",
                            "risk_contribution_pct", "absolute_risk_share", "effect"]
-                st.dataframe(frame[[c for c in columns if c in frame]], hide_index=True, use_container_width=True)
+                safe_dataframe(frame[[c for c in columns if c in frame]], hide_index=True, use_container_width=True)
             st.caption("Fractions use different denominators. Signed equity weights can exceed 1 or be negative. Negative signed volatility contributions identify historical hedge effects.")
     st.caption("Investigate next · " + str(finding.get("investigate", "Review portfolio methodology.")))
     first, second = st.columns(2)

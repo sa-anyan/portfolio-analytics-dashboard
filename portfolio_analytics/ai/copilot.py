@@ -19,6 +19,7 @@ from portfolio_analytics.ai.router import ROUTER_INSTRUCTION, parse_route_text
 from portfolio_analytics.scenarios.engine import run_scenario
 from portfolio_analytics.analytics.engine import historical_attribution
 from portfolio_analytics.diagnostics.trust import risk_values_for_display
+from portfolio_analytics.security.ai_access import AIUnavailable, policy, reserve
 
 
 #______________________________________________________________________________
@@ -73,6 +74,7 @@ Do not give buy/sell advice.
 #______________________________________________________________________________
 
 def _client(api_key: str | None = None):
+    policy()  # A configured API key alone never enables paid access.
     try:
         from openai import OpenAI  # type: ignore
     except ImportError as exc:
@@ -85,7 +87,22 @@ def _client(api_key: str | None = None):
         raise ValueError(
             "OpenAI is not configured. Add OPENAI_API_KEY to Streamlit secrets or the environment."
         )
-    return OpenAI(api_key=key)
+    return OpenAI(api_key=key, timeout=20.0, max_retries=0, base_url='https://api.openai.com/v1')
+
+
+def _provider_response(api_key=None, **kwargs):
+    p = policy()
+    allowed_model = os.getenv('AI_ALLOWED_MODEL', '')
+    if not allowed_model or kwargs.get('model') != allowed_model:
+        raise AIUnavailable('The requested AI model is not authorised.')
+    size = len((kwargs.get('instructions','')+kwargs.get('input','')).encode('utf-8'))
+    with reserve(size, kwargs['max_output_tokens']):
+        try:
+            with _client(api_key) as client:
+                return client.responses.create(**kwargs, store=False)
+        except Exception:
+            # Never echo exception text, request payloads, provider URLs or credentials.
+            raise AIUnavailable('AI provider request failed or timed out. This attempt remains counted; try later.') from None
 
 
 #______________________________________________________________________________
@@ -100,6 +117,10 @@ def _remove_private_identifiers(value: Any) -> Any:
         "account_id",
         "account number",
         "account_number",
+        "account", "source_id", "record_id", "record_ids", "snapshot_id", "review_digest", "source_row", "source_labels",
+        "_provenance", "account_provenance", "consolidation", "raw", "raw_records",
+        "filename", "source_file", "source_fingerprint", "fingerprint", "sources",
+        "accounting_log", "trades", "cashflows",
     }
     if isinstance(value, dict):
         return {
@@ -124,6 +145,7 @@ def build_copilot_context(
     identifiers and heavy calculation matrices remain inside deterministic Python.
     """
     parsed_view = _remove_private_identifiers(deepcopy(parsed))
+    parsed_view.pop('normalised_dataset', None)
     user_dataset = parsed_view.get("user_dataset", {})
     raw_records = user_dataset.pop("records", []) if isinstance(user_dataset, dict) else []
     if isinstance(user_dataset, dict):
@@ -134,8 +156,9 @@ def build_copilot_context(
     state_view.pop("scenario_baseline", None)
     if isinstance(state_view.get("inputs"), dict):
         state_view["inputs"].pop("user_dataset", None)
+        state_view['inputs'].pop('normalised_dataset', None)
 
-    analytics_view = deepcopy(analytics)
+    analytics_view = _remove_private_identifiers(deepcopy(analytics))
     analytics_view.pop("engine_data", None)
     actual_view = analytics_view.get("actual_performance")
     if isinstance(actual_view, dict):
@@ -177,6 +200,8 @@ def route_question(
     question = str(question or "").strip()
     if not question:
         raise ValueError("Enter a question for Copilot.")
+    if len(question) > 1000:
+        raise AIUnavailable('AI questions are limited to 1,000 characters.')
 
     recent = []
     for message in (conversation_history or [])[-6:]:
@@ -194,7 +219,7 @@ def route_question(
         + question
     )
 
-    response = _client(api_key).responses.create(
+    response = _provider_response(api_key,
         model=model,
         instructions=ROUTER_INSTRUCTION,
         input=prompt,
@@ -404,7 +429,7 @@ def explain_result(
         + "\n\nDETERMINISTIC RESULT:\n"
         + json.dumps(result, default=str, indent=2)
     )
-    response = _client(api_key).responses.create(
+    response = _provider_response(api_key,
         model=model,
         instructions=EXPLAINER_INSTRUCTION,
         input=prompt,
@@ -483,7 +508,7 @@ def generate_dashboard_insights(
             "meta": analytics.get("meta", {}),
         },
     }
-    response = _client(api_key).responses.create(
+    response = _provider_response(api_key,
         model=model,
         instructions=DASHBOARD_INSIGHT_INSTRUCTION,
         input=json.dumps(payload, default=str, separators=(",", ":")),

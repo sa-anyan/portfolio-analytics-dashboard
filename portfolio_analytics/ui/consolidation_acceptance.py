@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 from portfolio_analytics.input_engine.consolidate import selected_inputs
@@ -76,11 +77,11 @@ def render_acceptance(batch, prepare, *, use_live_prices, history_period, policy
     st.caption(f"Included accounts: {', '.join(accounts)}. {len(candidate['accounts'])} accounted accounts · {len(candidate['retained_record_ids'])} retained records · {len(candidate['excluded_record_ids'])} excluded records")
     valuation_valid = not candidate['errors'] and candidate.get('trust', {}).get('valuation_status') != 'blocked'
     if candidate['accounts'] and valuation_valid:
-        st.dataframe(pd.DataFrame([{k: v for k, v in a.items() if k not in {'record_ids', 'cash_balances'}} for a in candidate['accounts']]), hide_index=True, use_container_width=True)
+        safe_dataframe(pd.DataFrame([{k: v for k, v in a.items() if k not in {'record_ids', 'cash_balances'}} for a in candidate['accounts']]), hide_index=True, use_container_width=True)
     for error in candidate['errors']:
         st.error(error)
     if candidate.get('state') and valuation_valid:
-        st.dataframe(pd.DataFrame([{k: v for k, v in p.items() if k != 'account_provenance'} for p in candidate['state']['positions']]), hide_index=True, use_container_width=True)
+        safe_dataframe(pd.DataFrame([{k: v for k, v in p.items() if k != 'account_provenance'} for p in candidate['state']['positions']]), hide_index=True, use_container_width=True)
         st.write({'Reporting currency': 'USD', 'Equity': candidate['state']['totals']['equity'], 'Cash': candidate['state']['cash']['current'], 'Native cash balances': candidate['state']['cash']['balances']})
     if candidate.get('reconciliation') and valuation_valid:
         with st.expander('Financial reconciliation residuals and provenance'):

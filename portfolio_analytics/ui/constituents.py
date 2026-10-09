@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 from portfolio_analytics.input_engine.constituents import (
@@ -62,7 +63,7 @@ def render_exposure(state):
         for ticker in set(store)-set(catalog):
             rows.append({'Fund': ticker, 'Status': 'Parent no longer held; metadata retained, not applied'})
         if rows:
-            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            safe_dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         else:
             st.caption('No verified fund classifications or accepted constituent snapshots. Select a held security and explicitly identify it as a fund if necessary.')
     options = sorted(catalog, key=lambda t: (not any(w in catalog[t]['asset_class'].lower() for w in ('fund', 'etf', 'trust')), t))
@@ -76,7 +77,7 @@ def render_exposure(state):
         with st.expander(f'Accepted constituent evidence · {parent}'):
             snapshot = store[parent]
             st.caption(f"Snapshot {snapshot['coverage']['as_of']} · {len(snapshot.get('history', []))} archived previous versions. Constituents remain supplementary metadata.")
-            st.dataframe(pd.DataFrame([{'Name': r['name'], 'Identifiers': str(r['identifiers']), 'Resolved identifiers': str(r['resolved_identifiers']),
+            safe_dataframe(pd.DataFrame([{'Name': r['name'], 'Identifiers': str(r['identifiers']), 'Resolved identifiers': str(r['resolved_identifiers']),
                 'Weight fraction': r['weight'], 'Direct-security match': r['matched_direct_security'] or 'No exact direct match',
                 'As of': r['as_of'], 'Source': r['source'] or 'Unknown', 'Type': r['asset_class'], 'Currency': r['currency']} for r in snapshot['records']]), hide_index=True, use_container_width=True)
             for f in snapshot['sources']:
@@ -87,9 +88,12 @@ def render_exposure(state):
         if not uploaded:
             st.warning('Select constituent files first.')
         else:
-            st.session_state['constituent_draft'] = stage_constituents([(f.name, f.getvalue()) for f in uploaded], selected_parent=parent)
-            st.session_state['constituent_review_nonce'] = st.session_state.get('constituent_review_nonce', 0) + 1
-            st.rerun()
+            try:
+                st.session_state['constituent_draft'] = stage_constituents([(f.name, f.getvalue()) for f in uploaded], selected_parent=parent)
+                st.session_state['constituent_review_nonce'] = st.session_state.get('constituent_review_nonce', 0) + 1
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
     draft = st.session_state.get('constituent_draft')
     if not draft or draft['selected_parent'] != parent:
         st.caption('Select fund → upload constituent data → review exceptions → accept data.')
@@ -165,13 +169,13 @@ def render_exposure(state):
         if any(f['fingerprint'] in {s['fingerprint'] for s in store[parent]['sources']} for f in draft['files']):
             st.info('This source content was previously accepted. It will replace metadata, never add economic positions.')
     with st.expander('Weights, mappings and original source evidence'):
-        st.dataframe(pd.DataFrame([{'Record ID': r['record_id'], 'Name': r['name'], 'Reported identifiers': str(r['identifiers']),
+        safe_dataframe(pd.DataFrame([{'Record ID': r['record_id'], 'Name': r['name'], 'Reported identifiers': str(r['identifiers']),
             'Direct-security match': r['matched_direct_security'] or 'No exact direct match; identifier retained', 'Identity': r['identity_status'],
             'Weight fraction': r['weight'], 'As of': r['as_of'], 'Type': r['asset_class'], 'Currency': r['currency'], 'Source': r['source'] or 'Unknown'} for r in checked['records']]), hide_index=True, use_container_width=True)
         for f in draft['files']:
             st.caption(f"{f['filename']} · SHA-256 {f['fingerprint']}")
             if f['raw_records']:
-                st.dataframe(pd.DataFrame(f['raw_records']), hide_index=True, use_container_width=True)
+                safe_dataframe(pd.DataFrame(f['raw_records']), hide_index=True, use_container_width=True)
         st.json({'decisions': decisions, 'validation': checked['issues']})
     if st.button('Accept constituent data', disabled=not checked['ready']):
         st.session_state['fund_constituents'] = accept_constituents(store, draft, catalog, decisions=decisions, max_age_days=maximum)
@@ -219,7 +223,7 @@ def render_lookthrough(state, store, catalog, maximum):
         rows = [{'Security': r['name'], 'Direct': float(r['direct']), 'Indirect': float(sum(Decimal(v) for v in r['indirect_by_fund'].values())),
                  'Known total': float(r['known_total']), 'Equity %': float(r['equity_fraction'])*100 if r['equity_fraction'] is not None else None,
                  'Funds': ', '.join(r['indirect_by_fund'])} for r in securities[:10]]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        safe_dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         by_identity = {security_identity(r): r for r in securities}
         if len(by_identity) != len(securities):
             st.error('Underlying identities conflict; security investigation is unavailable.')
@@ -239,7 +243,7 @@ def render_lookthrough(state, store, catalog, maximum):
         selected = by_identity[identity]
         st.write(f"Known {selected['name']} exposure: {float(selected['known_total']):,.2f} {currency} · direct {float(selected['direct']):,.2f} {currency}.")
         if selected['indirect_by_fund']:
-            st.dataframe(pd.DataFrame([{'Parent fund': p, 'Indirect exposure': float(v), 'Currency': currency} for p,v in selected['indirect_by_fund'].items()]), hide_index=True, use_container_width=True)
+            safe_dataframe(pd.DataFrame([{'Parent fund': p, 'Indirect exposure': float(v), 'Currency': currency} for p,v in selected['indirect_by_fund'].items()]), hide_index=True, use_container_width=True)
         with st.expander('Supporting calculations and identity evidence'):
             st.caption('Each indirect amount uses the current canonical parent value × original constituent weight. Constituent listing currency is not economic currency exposure. No additional FX is applied.')
             st.json(selected)

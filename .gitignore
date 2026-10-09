@@ -5,3 +5,8 @@ __pycache__/
 .pytest_cache/
 .streamlit/secrets.toml
 .env
+
+*.sqlite
+*.sqlite-*
+*.db
+audit-results.json

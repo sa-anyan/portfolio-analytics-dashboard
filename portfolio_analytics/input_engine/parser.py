@@ -13,26 +13,33 @@ from typing import Any
 import pandas as pd
 
 from .normalizer import detect_column_map, normalise_holdings, normalise_ledger
+from portfolio_analytics.security.uploads import validate_batch, csv_text, validate_xlsx, validate_frame
 
 
 #______________________________________________________________________________
 # FILE READING
 #______________________________________________________________________________
 
-def read_portfolio_file(data: bytes, filename: str, *, dtype: Any = None, keep_default_na: bool = True) -> pd.DataFrame:
+def read_portfolio_file(data: bytes, filename: str, *, dtype: Any = None, keep_default_na: bool = True, security_limit: int = 100) -> pd.DataFrame:
     suffix = Path(filename or "").suffix.lower()
+    validate_batch([(filename, data)])
 
     if suffix == ".csv":
-        text = data.decode("utf-8-sig", errors="replace")
-        return pd.read_csv(StringIO(text), dtype=dtype, keep_default_na=keep_default_na)
+        text = csv_text(data)
+        frame = pd.read_csv(StringIO(text), dtype=dtype, keep_default_na=keep_default_na)
+        validate_frame(frame, security_limit=security_limit)
+        return frame
 
-    if suffix in {".xlsx", ".xlsm"}:
+    if suffix == ".xlsx":
+        validate_xlsx(data)
         workbook = pd.ExcelFile(BytesIO(data))
         if not workbook.sheet_names:
             raise ValueError("Excel workbook contains no worksheets.")
         # v4 deliberately starts with the first visible data sheet. Sheet selection
         # can be added later without changing the parser contract.
-        return pd.read_excel(workbook, sheet_name=workbook.sheet_names[0], dtype=dtype, keep_default_na=keep_default_na)
+        frame = pd.read_excel(workbook, sheet_name=workbook.sheet_names[0], dtype=dtype, keep_default_na=keep_default_na)
+        validate_frame(frame, security_limit=security_limit)
+        return frame
 
     raise ValueError("Upload a CSV or XLSX portfolio file.")
 
@@ -96,7 +103,10 @@ def parse_dataframe(
     filename: str = "",
     starting_cash: float = 0.0,
 ) -> dict[str, Any]:
+    validate_frame(frame)
     classification, confidence, column_map, notes = detect_portfolio_type(frame)
+    if 'ticker' in column_map:
+        validate_frame(frame[[column_map['ticker']]].rename(columns={column_map['ticker']: 'Ticker'}))
 
     raw_records = frame.where(pd.notna(frame), None).to_dict(orient="records")
 
