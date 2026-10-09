@@ -8,3 +8,14 @@ font = "sans serif"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+maxUploadSize = 5
+maxMessageSize = 20
+enableXsrfProtection = true
+enableCORS = true
+headless = true
+fileWatcherType = "none"
+
+[client]
+showErrorDetails = "none"

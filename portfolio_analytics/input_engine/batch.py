@@ -39,6 +39,8 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
     to discard rows. Missing account IDs are not inferred from ticker/filename.
     Starting cash is deliberately zero at staging; funding decisions are later.
     """
+    from portfolio_analytics.security.uploads import validate_batch
+    validate_batch(files)
     session_id = session_id or str(uuid4())
     imported_at = imported_at or datetime.now(timezone.utc).isoformat()
     batch = {"session_id": session_id, "imported_at": imported_at, "files": [],
@@ -47,7 +49,7 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
         source_id = f"{session_id}:{ordinal+1}"
         item = {"source_id": source_id, "filename": filename, "fingerprint": sha256(data).hexdigest(),
                 "source_type": Path(filename).suffix.lower().lstrip("."), "imported_at": imported_at,
-                "row_count": 0, "status": "parsed", "issues": [], "parts": [], "raw_records": []}
+                "row_count": 0, "byte_count": len(data), "status": "parsed", "issues": [], "parts": [], "raw_records": []}
         batch["files"].append(item)
         try:
             # Account identifiers such as 0007 must not be coerced to numbers.
@@ -63,6 +65,9 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
             if len(columns) > 1:
                 raise ValueError("Multiple account identifier columns found; retain one authoritative account column before staging.")
             hints = frame[columns[0]].map(_account) if columns else pd.Series([None]*len(frame), index=frame.index)
+            from portfolio_analytics.security.uploads import MAX_ACCOUNTS
+            if hints.nunique() > MAX_ACCOUNTS:
+                raise ValueError('Upload limit: at most 50 accounts before grouping.')
             item["account_column"] = str(columns[0]) if columns else None
             # The empty sentinel retains rows lacking an account assignment.
             for number, (_, group) in enumerate(frame.groupby(hints.fillna(""), sort=False)):
@@ -95,6 +100,9 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
         except Exception as exc:
             item["status"] = "blocked"
             item["issues"].append({"severity": "error", "issue": str(exc)})
+    from portfolio_analytics.security.uploads import MAX_ROWS, MAX_ACCOUNTS
+    if sum(f['row_count'] for f in batch['files']) > MAX_ROWS or len({p['account_id'] for f in batch['files'] for p in f['parts']}) > MAX_ACCOUNTS:
+        raise ValueError('Draft exceeds the 20,000 row / 50 account limit.')
     return _status(batch)
 
 
@@ -131,8 +139,14 @@ def apply_account_assignments(batch: dict, assignments: dict[str, str], *, reaso
 
 def append_files(batch: dict, files: list[tuple[str, bytes]]) -> dict:
     """Add immutable sources to an existing draft without erasing review history."""
+    from portfolio_analytics.security.uploads import MAX_FILES, MAX_ROWS, MAX_BATCH_BYTES, MAX_ACCOUNTS, validate_batch
+    validate_batch(files)
+    if len(batch['files'])+len(files)>MAX_FILES or sum(f['row_count'] for f in batch['files'])>MAX_ROWS:
+        raise ValueError('Staged draft exceeds the file/row limit.')
     result = deepcopy(batch)
     result["files"].extend(ingest_files(files)["files"])
+    if sum(f['byte_count'] for f in result['files']) > MAX_BATCH_BYTES or sum(f['row_count'] for f in result['files']) > MAX_ROWS or len({p['account_id'] for f in result['files'] for p in f['parts']}) > MAX_ACCOUNTS:
+        raise ValueError('Combined draft exceeds upload limits.')
     result.pop("review_confirmation", None)
     result["duplicate_review"] = "pending"
     return _status(result)

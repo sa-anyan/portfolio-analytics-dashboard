@@ -1,5 +1,6 @@
 """Compact reversible review of source conflicts; no financial acceptance."""
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 from portfolio_analytics.input_engine.review import review_view, decide, reverse_decision, confirm_review
@@ -31,13 +32,13 @@ def render_duplicate_review(batch: dict) -> None:
         if issue["recommendation"]:
             st.caption("Suggested review · " + issue["recommendation"])
         with st.expander("Affected sources and record evidence"):
-            st.dataframe(pd.DataFrame([{"Source": sources[s]["filename"], "Source ID": s,
+            safe_dataframe(pd.DataFrame([{"Source": sources[s]["filename"], "Source ID": s,
                 "Fingerprint": sources[s]["fingerprint"]} for s in issue["source_ids"]]), hide_index=True, use_container_width=True)
             st.write(issue["evidence"])
             rows = [{"Record ID": r, "Account": records[r]["account_id"], "File": records[r]["source_file"],
                      "Kind": records[r]["kind"], **records[r]["data"]} for r in issue["record_ids"]]
             if rows:
-                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                safe_dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         action = st.selectbox("Review decision", issue["actions"], format_func=lambda a: LABELS[a], key=f"review_action_{identifier}")
         targets = []
         if action == "exclude_sources":
@@ -61,12 +62,12 @@ def render_duplicate_review(batch: dict) -> None:
     legitimate = [i for i in view["issues"] if not i["blocking"]]
     if legitimate:
         with st.expander("Legitimate repeated activity and source information"):
-            st.dataframe(pd.DataFrame([{"Finding": i["title"], "Accounts": ", ".join(i["accounts"]), "Reason": i["reason"],
+            safe_dataframe(pd.DataFrame([{"Finding": i["title"], "Accounts": ", ".join(i["accounts"]), "Reason": i["reason"],
                                       "Sources": ", ".join(sources[s]["filename"] for s in i["source_ids"])} for i in legitimate]), hide_index=True, use_container_width=True)
     decisions = batch.get("review_decisions", {})
     if decisions:
         with st.expander("Decision history and reversals"):
-            st.dataframe(pd.DataFrame([{"Decision ID": i, "Decision": d["action"], "Reason": d["reason"],
+            safe_dataframe(pd.DataFrame([{"Decision ID": i, "Decision": d["action"], "Reason": d["reason"],
                 "Status": "invalidated" if i in view["invalidated_decisions"] else "active", "Sources": ", ".join(d["issue"]["source_ids"]),
                 "Record IDs": ", ".join(d["issue"]["record_ids"])} for i, d in decisions.items()]), hide_index=True, use_container_width=True)
             identifier = st.selectbox("Decision to reverse", list(decisions), format_func=lambda i: decisions[i]["issue"]["title"], key="review_reverse_id")

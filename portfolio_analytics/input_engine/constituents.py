@@ -77,6 +77,8 @@ def contradicts(ids, item):
 
 
 def stage_constituents(files, *, selected_parent):
+    from portfolio_analytics.security.uploads import validate_batch
+    validate_batch(files)
     draft = {'selected_parent': selected_parent, 'files': [], 'records': []}
     for n, (filename, data) in enumerate(files, 1):
         fingerprint = sha256(data).hexdigest()
@@ -84,7 +86,8 @@ def stage_constituents(files, *, selected_parent):
         source = {'source_id': sid, 'filename': filename, 'fingerprint': fingerprint, 'errors': [], 'raw_records': []}
         draft['files'].append(source)
         try:
-            frame = read_portfolio_file(data, filename, dtype=str, keep_default_na=False)
+            # Underlying fund composition can contain far more securities than an owned book.
+            frame = read_portfolio_file(data, filename, dtype=str, keep_default_na=False, security_limit=20_000)
             if frame.empty:
                 raise ValueError('Constituent file is empty.')
             mapping = {}

@@ -11,14 +11,18 @@ inside the package engines.
 from __future__ import annotations
 
 import json
+import os
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
-from portfolio_analytics.ai.copilot import ask_copilot, generate_dashboard_insights
+from portfolio_analytics.ai.copilot import ask_copilot
+from portfolio_analytics.security.ai_access import AIUnavailable, policy, identity, authorised_request
+from portfolio_analytics.security.session import synchronise_owner
 from portfolio_analytics.analytics.engine import run_analytics, run_account_performance, returns_from_analytics
 from portfolio_analytics.analytics.combination_risk import calculate_combination_risk
 from portfolio_analytics.core.market_data import fetch_latest_prices, fetch_price_history
@@ -55,11 +59,14 @@ UI_BUILD = "2026.10.03-premium-dark-2"
 st.set_page_config(page_title="Portfolio Analytics v4", layout="wide")
 st.markdown(APP_CSS, unsafe_allow_html=True)
 st.markdown(HERO_HTML, unsafe_allow_html=True)
+st.caption("Session-only workspace: accepted portfolios, upload reviews, ETF data and chat may be lost on refresh, expiry or restart. They are not saved for recovery. Remove uploads before leaving a shared computer; reset is not a secure-erasure guarantee.")
 
 
 #______________________________________________________________________________
 # SESSION STATE
 #______________________________________________________________________________
+
+synchronise_owner(st.session_state, st.user)
 
 for key, default in {
     "parsed": None,
@@ -218,12 +225,12 @@ def section_header(title: str, eyebrow: str, note: str = "") -> None:
 
 def get_api_key() -> str | None:
     try:
-        return st.secrets.get("OPENAI_API_KEY")
+        return st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     except Exception:
-        return None
+        return os.getenv("OPENAI_API_KEY")
 
 
-COPILOT_SESSION_LIMIT = 5
+# Paid access is enforced at the provider boundary, not by a session counter.
 
 
 @st.cache_data(show_spinner=False)
@@ -241,21 +248,21 @@ def demo_holdings_workbook() -> bytes:
 # CACHED MARKET DATA
 #______________________________________________________________________________
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=64, show_spinner=False)
 def cached_latest_prices(tickers: tuple[str, ...]):
     return fetch_latest_prices(list(tickers))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_price_history(tickers: tuple[str, ...], period: str):
     return fetch_price_history(list(tickers), period=period)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting"):
     return fetch_price_history(list(tickers), start=start_date, price_basis=price_basis)
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_fx_history(currencies: tuple[str, ...], start_date: str):
     return fetch_fx_history(list(currencies), start=start_date, base="USD")
 
@@ -360,12 +367,28 @@ with copilot_col:
     st.markdown('<div class="pa-copilot">', unsafe_allow_html=True)
     st.subheader("AI Copilot")
     st.caption("Connected to parser, Portfolio State, analytics and scenario functions. Python calculates; Copilot interprets and explains.")
-    if api_key:
-        remaining = max(0, COPILOT_SESSION_LIMIT - int(st.session_state.copilot_uses))
-        st.success("Copilot connected", icon="✅")
-        st.caption(f"Public demo allowance: {remaining} of {COPILOT_SESSION_LIMIT} AI questions remaining this session.")
-    else:
-        st.info("Add `OPENAI_API_KEY` to Streamlit secrets to enable Copilot. The deterministic dashboard still works without it.")
+    paid_access = False
+    try:
+        policy()
+        identity(st.user)
+        paid_access = bool(api_key)
+        if not paid_access:
+            st.info("Paid Copilot is unavailable: server credentials are not configured.")
+        else:
+            st.caption("Authorised access · shared server request/token controls apply to every provider attempt.")
+    except AIUnavailable as exc:
+        st.info(str(exc))
+        if os.getenv('AI_ACCESS_POLICY') == 'controlled_oidc' and not getattr(st.user, 'is_logged_in', False):
+            if st.button("Sign in for controlled Copilot access"):
+                try:
+                    st.login()
+                except Exception:
+                    st.error("Server sign-in is unavailable; ask the operator to verify OIDC configuration.")
+    ai_consent = st.checkbox("Allow this question and portfolio evidence to be sent to OpenAI", disabled=not paid_access, key='ai_submission_consent')
+    st.caption("AI submission can include holdings, quantities, values, risk metrics and recent chat. Raw upload tables and provenance are excluded; identifiers in submitted prose may still be sent. No AI calls occur during upload or navigation.")
+    if getattr(st.user, 'is_logged_in', False) and st.button('Sign out and reset session'):
+        st.session_state.clear()
+        st.logout()
 
     auto_ai_insights = st.toggle(
         "Automatic Copilot captions",
@@ -396,19 +419,16 @@ with copilot_col:
             key="copilot_question",
         )
 
-        copilot_limit_reached = int(st.session_state.copilot_uses) >= COPILOT_SESSION_LIMIT
-        if copilot_limit_reached:
-            st.info("Demo AI limit reached. Portfolio analytics remain fully available.")
-
         if not valuation_ok:
             st.warning("Refresh valuation inputs before asking Copilot or running scenarios.")
-        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=copilot_limit_reached or not valuation_ok):
+        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=not paid_access or not ai_consent or not valuation_ok):
             if not api_key:
                 st.error("Copilot needs an OpenAI API key.")
             elif question.strip():
+                st.session_state.copilot_messages = st.session_state.copilot_messages[-10:]
                 st.session_state.copilot_messages.append({"role": "user", "content": question})
                 try:
-                    with st.spinner("Copilot is reading the portfolio engines..."):
+                    with authorised_request(st.user, ai_consent), st.spinner("Copilot is reading the portfolio engines..."):
                         response = ask_copilot(
                             question,
                             parsed=st.session_state.parsed,
@@ -424,7 +444,7 @@ with copilot_col:
                         st.session_state.latest_scenario = response["scenario"]
                     st.rerun()
                 except Exception as exc:
-                    st.error(f"Copilot could not complete that request: {exc}")
+                    st.error(str(exc) if isinstance(exc, AIUnavailable) else "Copilot could not complete that request. No portfolio changes were accepted.")
 
         control_col1, control_col2 = st.columns(2)
         with control_col1:
@@ -591,12 +611,6 @@ with main_col:
                 st.session_state.copilot_messages = []
 
                 insights = fallback_insights(state, analytics)
-                if auto_ai_insights and api_key:
-                    try:
-                        with st.spinner("Copilot is preparing chart captions..."):
-                            insights = generate_dashboard_insights(state, analytics, api_key=api_key)
-                    except Exception as exc:
-                        st.warning(f"AI captions were unavailable, so textbook fallback captions are shown. {exc}")
                 st.session_state.copilot_insights = insights
 
                 # The Copilot column is rendered before the input engine on each
@@ -649,19 +663,19 @@ with main_col:
 
             if parsed.get("issues"):
                 with st.expander(f"Parser review items ({len(parsed['issues'])})"):
-                    st.dataframe(pd.DataFrame(parsed["issues"]), use_container_width=True, hide_index=True)
+                    safe_dataframe(pd.DataFrame(parsed["issues"]), use_container_width=True, hide_index=True)
 
             with st.expander("Normalised input used by the engine"):
                 normalised = parsed.get("normalised_dataset", {})
                 if parsed.get("classification") in {"holdings", "consolidated"} and normalised.get("holdings"):
                     st.markdown("**Holdings snapshots**")
-                    st.dataframe(pd.DataFrame(normalised.get("holdings", [])), use_container_width=True, hide_index=True)
+                    safe_dataframe(pd.DataFrame(normalised.get("holdings", [])), use_container_width=True, hide_index=True)
                 if parsed.get("classification") != "holdings":
                     st.markdown("**Trades**")
-                    st.dataframe(pd.DataFrame(normalised.get("ledger", [])), use_container_width=True, hide_index=True)
+                    safe_dataframe(pd.DataFrame(normalised.get("ledger", [])), use_container_width=True, hide_index=True)
                     if normalised.get("cashflows"):
                         st.markdown("**Cash flows**")
-                        st.dataframe(pd.DataFrame(normalised.get("cashflows", [])), use_container_width=True, hide_index=True)
+                        safe_dataframe(pd.DataFrame(normalised.get("cashflows", [])), use_container_width=True, hide_index=True)
 
             positions = pd.DataFrame(state.get("positions", []))
             if not positions.empty:
@@ -677,7 +691,7 @@ with main_col:
                         "ticker", "side", "quantity", "average_entry_price", "current_price",
                         "signed_market_value", "exposure", "realised_pnl", "unrealised_pnl",
                     ]
-                    st.dataframe(
+                    safe_dataframe(
                         positions[[col for col in display_cols if col in positions.columns]],
                         use_container_width=True,
                         hide_index=True,
@@ -749,7 +763,7 @@ with main_col:
                 st.plotly_chart(risk_contribution_donut(analytics), use_container_width=True, config={"displaylogo": False})
                 st.caption("Slices show absolute normalised contributions. A negative signed contribution is a hedge; see the table.")
                 if analytics.get("risk_contribution"):
-                    st.dataframe(pd.DataFrame(analytics["risk_contribution"])[["ticker", "risk_contribution_pct", "absolute_risk_share"]], hide_index=True, use_container_width=True)
+                    safe_dataframe(pd.DataFrame(analytics["risk_contribution"])[["ticker", "risk_contribution_pct", "absolute_risk_share"]], hide_index=True, use_container_width=True)
                 insight_box(insights.get("risk_contribution", ""))
 
             section_header("Historical Behaviour", "PERFORMANCE THROUGH TIME", "Portfolio growth and peak-to-trough drawdown across the selected historical window.")
@@ -857,7 +871,7 @@ with main_col:
 
                 if excluded:
                     with st.expander(f"Tickers unavailable for historical combination analysis ({len(excluded)})"):
-                        st.dataframe(
+                        safe_dataframe(
                             pd.DataFrame([{"ticker": k, "reason": v} for k, v in excluded.items()]),
                             use_container_width=True,
                             hide_index=True,
@@ -911,7 +925,7 @@ with main_col:
                             for col in ["annual_return", "geometric_annual_return", "annual_volatility", "max_drawdown", "var_pct", "expected_shortfall_pct"]:
                                 display[col] = display[col].map(lambda x: f"{float(x)*100:.2f}%" if pd.notna(x) else "—")
                             display = display.rename(columns={"annual_return": "Arithmetic annualised mean", "geometric_annual_return": "Geometric annualised return"})
-                            st.dataframe(display, use_container_width=True, hide_index=True)
+                            safe_dataframe(display, use_container_width=True, hide_index=True)
                 else:
                     st.info(combination_risk.get("reason") or "Combination analysis is unavailable for this selection.")
             else:
@@ -976,7 +990,7 @@ with main_col:
                         "ticker", "side", "quantity", "average_entry_price", "current_price",
                         "signed_market_value", "exposure", "realised_pnl", "unrealised_pnl",
                     ]
-                    st.dataframe(
+                    safe_dataframe(
                         scenario_positions[[col for col in display_cols if col in scenario_positions.columns]],
                         use_container_width=True,
                         hide_index=True,

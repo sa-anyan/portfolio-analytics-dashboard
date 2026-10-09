@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pandas as pd
+from portfolio_analytics.security.ui import safe_dataframe
 import streamlit as st
 
 
@@ -30,14 +31,14 @@ def render_trust(report: dict, *, rejected: bool = False, controls: bool = True,
         st.caption(f"{len(issues)} diagnostic items. Expand for affected holdings, dates and assumptions.")
     with st.expander("Trust evidence, affected calculations and methodology", expanded=False):
         if issues:
-            st.dataframe(pd.DataFrame([{"Severity": i["severity"], "Issue": i["title"],
+            safe_dataframe(pd.DataFrame([{"Severity": i["severity"], "Issue": i["title"],
                                        "Holdings": ", ".join(i["holdings"]) or "Whole portfolio",
                                        "Affected calculations": ", ".join(i["affects"]),
                                        "Explanation": i["explanation"], "Evidence": str(i["evidence"])} for i in issues]), hide_index=True, use_container_width=True)
         for label, key in (("Currency distinctions", "currencies"), ("FX observations", "fx_evidence"), ("Pricing dates", "price_evidence")):
             if report.get(key):
                 st.caption(label)
-                st.dataframe(pd.DataFrame(report[key]), hide_index=True, use_container_width=True)
+                safe_dataframe(pd.DataFrame(report[key]), hide_index=True, use_container_width=True)
         sample = report.get("risk_sample", {})
         st.write(f"Common historical observations: {sample.get('common_observations', 0)}. Common return sample: {sample.get('common_start') or 'unavailable'} to {sample.get('common_end') or 'unavailable'}. Source price history: {sample.get('history_start') or 'unavailable'} to {sample.get('history_end') or 'unavailable'}. Tail observations: {sample.get('tail_observations') if sample.get('tail_observations') is not None else 'unavailable'}.")
         st.caption("Trading currency is the listing's quote unit; reporting currency is the unit of aggregate figures. Economic currency exposure cannot be inferred from a listing or ETF ticker. GBX means GBP pence, not pounds.")

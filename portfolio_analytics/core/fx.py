@@ -63,7 +63,7 @@ def fetch_fx_history(currencies: list[str], *, start: Any, end: Any = None, base
         for ccy in needed:
             found = None
             for ticker, invert in ((_pair_ticker(ccy, base), False), (_pair_ticker(base, ccy), True)):
-                kwargs={"tickers":[ticker],"start":start,"interval":"1d","auto_adjust":False,"progress":False,"group_by":"column","threads":False}
+                kwargs={"tickers":[ticker],"start":start,"interval":"1d","auto_adjust":False,"progress":False,"group_by":"column","threads":False,"timeout":15}
                 if end is not None: kwargs["end"] = end
                 data=yf.download(**kwargs)
                 close=_extract_close(data,[ticker],prefer_adjusted=True)

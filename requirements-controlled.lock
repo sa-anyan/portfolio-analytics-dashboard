@@ -1,0 +1,5 @@
+# Controlled OIDC on Linux only; default paid-disabled runtime does not require these.
+-r requirements.lock
+authlib==1.8.0
+cryptography==50.0.2
+joserfc==1.7.5

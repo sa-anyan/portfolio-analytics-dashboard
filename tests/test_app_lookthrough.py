@@ -39,7 +39,12 @@ def test_daniel_passed_complete_known_story_and_navigation_without_market_reques
     assert 'Nvidia' in app.session_state['copilot_question'] and app.session_state['copilot_uses']==0
     ctx=build_copilot_context(app.session_state['parsed'],original,app.session_state['analytics'])
     explained=_explanation_result({'fields':['lookthrough']},ctx)['analytics']['lookthrough']
-    assert explained==app.session_state['analytics']['lookthrough']
+    for public, original_security in zip(explained['securities'], app.session_state['analytics']['lookthrough']['securities']):
+        for field in ('name','identifiers','direct','indirect_by_fund','known_total','equity_fraction'):
+            assert public[field]==original_security[field]
+        assert all('source_id' not in evidence for evidence in public['evidence'])
+    assert explained['reconciliation']==app.session_state['analytics']['lookthrough']['reconciliation']
+    assert explained['complete_ranking']==app.session_state['analytics']['lookthrough']['complete_ranking']
     next(r for r in app.radio if r.label=='Deep Analytics view').set_value('Discover').run()
     assert any('Trust' in e.label or 'Data' in e.label for e in app.expander)
     button(app,'Run hypothetical shock').click().run()
