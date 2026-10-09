@@ -9,7 +9,7 @@ from portfolio_analytics.ai import copilot
 
 
 def test_manual_mixed_currency_portfolio_reaches_dashboard_with_consistent_account_value(monkeypatch):
-    dates = pd.bdate_range("2025-01-02", periods=4)
+    dates = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=4)
     def history(tickers, **kwargs):
         result = pd.DataFrame({ticker: [200]*4 if ticker == "UKTEST" else [100]*4 for ticker in tickers}, index=dates)
         result.attrs["price_basis"] = kwargs.get("price_basis", "total_return")

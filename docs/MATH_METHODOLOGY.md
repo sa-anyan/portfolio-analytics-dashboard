@@ -46,6 +46,18 @@ Returns start at the first selected valuation, excluding changes before the requ
 
 ## Reproducibility and recovery
 
+### Trust diagnostics (Phase 2A)
+
+The application now evaluates existing inputs and canonical results without replacing accounting, returns, FX alignment or scenario formulas. Reporting currency is read from canonical metadata; trading currency is the listing's quote unit. A security's economic currency exposure is unknown without additional information. Native foreign cash retains its explicit currency exposure; GBX is GBP pence.
+
+Default freshness rules are **5 calendar days for FX** and **5 calendar days for current prices**, measured from actual observation dates in UTC. Age greater than the configured limit is stale; future dates are flagged. These review rules can be adjusted in Trust evidence. They do not implement exchange calendars, holiday calendars or a validated confidence score. Changing rules re-evaluates accepted inputs and applies to subsequent submissions; a rejected submission's report records the rule used when it was rejected.
+
+Missing/invalid required conversion rates and stale/undated FX block acceptance of the submitted portfolio. If accepted inputs subsequently expire, affected aggregates, findings and scenarios are withheld and Copilot requests disabled until refreshed or the explicitly configured review rule is changed. Missing security prices retain PR #1's complete-portfolio rejection. A rejected replacement is labelled separately from the previous accepted portfolio. Stale or undated security prices carry visible warnings rather than a claim of current accuracy. Per-security timestamps cannot be inferred from another ticker's aggregate timestamp.
+
+The existing FX adapter carries valid observations forward without look-ahead. Diagnostics additionally flag invalid historical FX observations and gaps exceeding the configured age rule; they do not change that alignment or prove historical conversions are complete. Dated source series can establish FX timestamps even when provider metadata is absent. Missing timestamp evidence remains unknown.
+
+Risk diagnostics report the canonical common observation count and common return sample dates, plus the source price window. The **30-observation interpretation floor** and **20-tail-observation warning** preserve the existing interpretation rules; the underlying engine's two-observation minimum and computed estimates remain unchanged. Neither threshold establishes statistical adequacy. Missing/non-finite/negative required risk estimates appear unavailable in presentation, never as zero; canonical outputs are retained. Valid sample estimates of zero VaR or volatility are not a guarantee of zero future risk. Actual account performance and current-weight hypothetical simulation remain distinct.
+
 The pre-fix version is Git commit `4a254a4d981e7f6779d397b0b7063fe7989b0380`. GitHub commit history preserves it, so no separate copy is needed. Use a checkout/worktree at that commit to inspect the old version; to undo deployed changes, revert the fix commit(s) through a new commit rather than rewriting shared history.
 
 The regression suite includes numerical examples for currencies/pence, initial loss drawdown, duplicate lots, attribution with cash and compounding, opening capital, missing asset/FX coverage, dividends and splits. Before a presentation, freeze the portfolio data/as-of date and reconcile current and reconstructed ending equity against the broker record. Test success validates implementation behaviour; it does not establish that user-entered metadata or provider prices are correct.

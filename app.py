@@ -27,6 +27,8 @@ from portfolio_analytics.core.portfolio_state import build_portfolio_state
 from portfolio_analytics.input_engine.manual import parse_manual_holdings
 from portfolio_analytics.input_engine.parser import parse_upload
 from portfolio_analytics.ui.discover import render_discover
+from portfolio_analytics.ui.trust import render_trust
+from portfolio_analytics.diagnostics.trust import diagnose_trust, TrustPolicy, finite, risk_values_for_display
 from portfolio_analytics.ui.insights import fallback_insights
 from portfolio_analytics.ui.styles import APP_CSS, HERO_HTML
 from portfolio_analytics.ui.visuals import (
@@ -67,6 +69,8 @@ for key, default in {
     "copilot_messages": [],
     "latest_scenario": None,
     "copilot_uses": 0,
+    "trust_attempt": None,
+    "trust_policy": {},
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -91,6 +95,8 @@ if "manual_rows" not in st.session_state:
 
 def money(value: Any, *, compact: bool = False) -> str:
     try:
+        if not finite(value):
+            return "—"
         amount = float(value)
         if compact:
             absolute = abs(amount)
@@ -108,7 +114,7 @@ def money(value: Any, *, compact: bool = False) -> str:
 def metric_money(label: str, value: Any, *, help: str | None = None, tone: str = "neutral") -> None:
     """Finance-style KPI: readable full value without Streamlit truncation."""
     try:
-        amount = float(value)
+        amount = float(value) if finite(value) else None
     except (TypeError, ValueError):
         amount = None
 
@@ -138,6 +144,8 @@ def metric_money(label: str, value: Any, *, help: str | None = None, tone: str =
 def metric_percent(label: str, value: Any, *, help: str | None = None, tone: str = "neutral") -> None:
     """Finance-style percentage KPI matching the monetary summary strip."""
     try:
+        if not finite(value):
+            raise ValueError("Unavailable metric")
         amount = float(value) * 100.0
         display = f"{amount:,.2f}%"
     except (TypeError, ValueError):
@@ -254,8 +262,22 @@ def cached_fx_history(currencies: tuple[str, ...], start_date: str):
 # MAIN + COPILOT LAYOUT
 #______________________________________________________________________________
 
+trust_policy = TrustPolicy(**st.session_state.trust_policy)
+if st.session_state.analytics is not None:
+    previous_trust = st.session_state.analytics.get("trust_diagnostics", {})
+    st.session_state.analytics["trust_diagnostics"] = diagnose_trust(
+        st.session_state.portfolio_state, st.session_state.analytics, parsed=st.session_state.parsed,
+        market_metadata=(st.session_state.market_metadata or {}).get("latest", {}),
+        fx_snapshot=previous_trust.get("fx_snapshot", {}), policy=trust_policy)
+valuation_ok = st.session_state.analytics is None or st.session_state.analytics.get("trust_diagnostics", {}).get("valuation_status") != "blocked"
 workspace = st.radio("Workspace", ["Portfolio dashboard", "Deep Analytics"], horizontal=True, key="workspace", label_visibility="collapsed")
 main_col, copilot_col = st.columns([3.25, 1.15], gap="large")
+with main_col:
+    if st.session_state.trust_attempt:
+        render_trust(st.session_state.trust_attempt, rejected=True, controls=st.session_state.analytics is None)
+        st.info("The latest submission was rejected. Any accepted portfolio below is the previous portfolio, not the rejected upload.")
+    if workspace == "Portfolio dashboard" and st.session_state.analytics and st.session_state.analytics.get("trust_diagnostics"):
+        render_trust(st.session_state.analytics["trust_diagnostics"])
 if workspace == "Deep Analytics":
     with main_col:
         render_discover(st.session_state.portfolio_state, st.session_state.analytics)
@@ -313,7 +335,9 @@ with copilot_col:
         if copilot_limit_reached:
             st.info("Demo AI limit reached. Portfolio analytics remain fully available.")
 
-        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=copilot_limit_reached):
+        if not valuation_ok:
+            st.warning("Refresh valuation inputs before asking Copilot or running scenarios.")
+        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=copilot_limit_reached or not valuation_ok):
             if not api_key:
                 st.error("Copilot needs an OpenAI API key.")
             elif question.strip():
@@ -429,6 +453,9 @@ with main_col:
         analyse = st.button("Parse & Analyse Portfolio", type="primary")
 
         if analyse:
+            st.session_state.trust_attempt = None
+            parsed, latest_prices, latest_meta, fx_history = None, {}, {}, pd.DataFrame()
+            attempt_trust = None
             try:
                 with st.spinner("Parsing and normalising portfolio..."):
                     if source_type == "Upload file":
@@ -472,9 +499,15 @@ with main_col:
                         parsed, latest_prices=latest_prices, market_metadata=latest_meta,
                         fx_history=fx_history, split_history=actual_history.attrs.get("splits"),
                     )
+                    attempt_trust = diagnose_trust(state, parsed=parsed, market_metadata=latest_meta,
+                                                   fx_history=fx_history, policy=trust_policy)
+                    if attempt_trust["valuation_status"] == "blocked":
+                        raise ValueError("Portfolio acceptance blocked by currency/valuation trust diagnostics. Expand Trust evidence for affected holdings and dates.")
                     analytics = run_analytics(state, history, fx_history=fx_history)
                     if state.get("accounting_history", {}).get("available"):
                         analytics["actual_performance"] = run_account_performance(state, actual_history, fx_history=fx_history)
+                    analytics["trust_diagnostics"] = diagnose_trust(state, analytics, parsed=parsed,
+                        market_metadata=latest_meta, fx_snapshot=attempt_trust["fx_snapshot"], policy=trust_policy)
                     history_meta = {**history_meta, "actual_performance": actual_meta, "fx": fx_meta}
                     coverage = analytics.get("meta", {}).get("coverage", {})
                     if not coverage.get("available", True):
@@ -487,6 +520,7 @@ with main_col:
                 st.session_state.analytics = analytics
                 st.session_state.market_metadata = {"latest": latest_meta, "history": history_meta}
                 st.session_state.latest_scenario = None
+                st.session_state.trust_attempt = None
                 st.session_state.copilot_messages = []
 
                 insights = fallback_insights(state, analytics)
@@ -505,6 +539,14 @@ with main_col:
                 st.rerun()
 
             except Exception as exc:
+                if parsed is not None:
+                    if attempt_trust and attempt_trust["valuation_status"] == "blocked":
+                        st.session_state.trust_attempt = attempt_trust
+                    else:
+                        st.session_state.trust_attempt = diagnose_trust(
+                            state if attempt_trust else None, parsed=parsed, latest_prices=latest_prices,
+                            market_metadata=latest_meta, fx_history=fx_history, policy=trust_policy, failure=str(exc))
+                    st.rerun()
                 st.error(str(exc))
 
 
@@ -514,11 +556,12 @@ with main_col:
 
 with main_col:
     if workspace == "Portfolio dashboard":
-        if st.session_state.parsed is not None:
+        if st.session_state.parsed is not None and valuation_ok:
             parsed = st.session_state.parsed
             state = st.session_state.portfolio_state
             analytics = st.session_state.analytics
-            insights = st.session_state.copilot_insights or fallback_insights(state, analytics)
+            insights = (fallback_insights(state, analytics) if analytics.get("trust_diagnostics", {}).get("risk_status") == "unavailable"
+                        else st.session_state.copilot_insights or fallback_insights(state, analytics))
 
             st.divider()
             section_header(
@@ -579,12 +622,13 @@ with main_col:
 
 with main_col:
     if workspace == "Portfolio dashboard":
-        if st.session_state.analytics is not None:
+        if st.session_state.analytics is not None and valuation_ok:
             state = st.session_state.portfolio_state
             analytics = st.session_state.analytics
-            insights = st.session_state.copilot_insights or fallback_insights(state, analytics)
+            insights = (fallback_insights(state, analytics) if analytics.get("trust_diagnostics", {}).get("risk_status") == "unavailable"
+                        else st.session_state.copilot_insights or fallback_insights(state, analytics))
             totals = state.get("totals", {})
-            risk = analytics.get("risk", {})
+            risk = risk_values_for_display(analytics)
             perf = analytics.get("performance", {})
 
             st.divider()
@@ -816,7 +860,7 @@ with main_col:
 
 with main_col:
     if workspace == "Portfolio dashboard":
-        if st.session_state.latest_scenario is not None:
+        if st.session_state.latest_scenario is not None and valuation_ok:
             scenario = st.session_state.latest_scenario
             st.divider()
             st.markdown('<span id="latest-scenario"></span>', unsafe_allow_html=True)

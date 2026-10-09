@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any
+from portfolio_analytics.diagnostics.trust import finite, risk_values_for_display
 
 
 #______________________________________________________________________________
@@ -15,6 +16,8 @@ from typing import Any
 
 def _pct(value: Any) -> str:
     try:
+        if not finite(value):
+            return "unavailable"
         return f"{float(value) * 100:.2f}%"
     except (TypeError, ValueError):
         return "unavailable"
@@ -22,6 +25,8 @@ def _pct(value: Any) -> str:
 
 def _money(value: Any) -> str:
     try:
+        if not finite(value):
+            return "unavailable"
         return f"${float(value):,.2f}"
     except (TypeError, ValueError):
         return "unavailable"
@@ -32,7 +37,7 @@ def _money(value: Any) -> str:
 #______________________________________________________________________________
 
 def fallback_insights(state: dict[str, Any], analytics: dict[str, Any]) -> dict[str, str]:
-    risk = analytics.get("risk", {})
+    risk = risk_values_for_display(analytics)
     exposure = analytics.get("exposure", {})
     performance = analytics.get("performance", {})
     pnl = analytics.get("pnl", {})

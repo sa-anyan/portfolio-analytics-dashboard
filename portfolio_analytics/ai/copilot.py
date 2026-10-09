@@ -18,6 +18,7 @@ from typing import Any
 from portfolio_analytics.ai.router import ROUTER_INSTRUCTION, parse_route_text
 from portfolio_analytics.scenarios.engine import run_scenario
 from portfolio_analytics.analytics.engine import historical_attribution
+from portfolio_analytics.diagnostics.trust import risk_values_for_display
 
 
 #______________________________________________________________________________
@@ -35,6 +36,7 @@ EXPLAINER_INSTRUCTION = r"""
 You are the explanation layer for a deterministic portfolio analytics system.
 
 Rules:
+- Respect trust_diagnostics: blocked valuations are unavailable, limited samples are uncertain, and missing/invalid risk is unknown rather than zero. Trading currency does not establish economic currency exposure.
 - Portfolio-specific numbers in the supplied RESULT are authoritative.
 - Never recalculate, estimate, change or invent portfolio values.
 - The portfolio base currency is USD unless the deterministic RESULT explicitly identifies another currency.
@@ -260,9 +262,10 @@ def _lookup_result(
         "portfolio": _position_lookup(selected_state, route.get("ticker")),
         "analytics": {
             "deep_findings": selected_analytics.get("deep_findings", {}),
+            "trust_diagnostics": selected_analytics.get("trust_diagnostics", context["analytics"].get("trust_diagnostics", {})),
             "exposure": selected_analytics.get("exposure", {}),
             "pnl": selected_analytics.get("pnl", {}),
-            "risk": selected_analytics.get("risk", {}),
+            "risk": risk_values_for_display(selected_analytics),
             "performance": selected_analytics.get("performance", {}),
             "holdings_mix": selected_analytics.get("holdings_mix", []),
             "risk_contribution": selected_analytics.get("risk_contribution", []),
@@ -288,9 +291,10 @@ def _explanation_result(
         "analytics": {
             "meta": selected_analytics.get("meta", {}),
             "deep_findings": selected_analytics.get("deep_findings", {}),
+            "trust_diagnostics": selected_analytics.get("trust_diagnostics", context["analytics"].get("trust_diagnostics", {})),
             "exposure": selected_analytics.get("exposure", {}),
             "pnl": selected_analytics.get("pnl", {}),
-            "risk": selected_analytics.get("risk", {}),
+            "risk": risk_values_for_display(selected_analytics),
             "performance": selected_analytics.get("performance", {}),
             "holdings_mix": selected_analytics.get("holdings_mix", []),
             "risk_contribution": selected_analytics.get("risk_contribution", []),
@@ -425,6 +429,8 @@ def ask_copilot(
     model: str = DEFAULT_MODEL,
 ) -> dict[str, Any]:
     """Route, validate, execute and explain one user question."""
+    if analytics.get("trust_diagnostics", {}).get("valuation_status") == "blocked":
+        raise ValueError("Refresh blocked valuation inputs before Copilot analysis or scenarios.")
     context = build_copilot_context(parsed, state, analytics, previous_scenario)
     route = route_question(
         question,
