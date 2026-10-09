@@ -80,9 +80,9 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
                               "import_session": session_id, "imported_at": imported_at,
                               "source_type": item["source_type"], "format": parsed["classification"]}
                 parsed["source"]["provenance"] = provenance.copy()
-                for records in parsed["normalised_dataset"].values():
-                    for record in records:
-                        record["_provenance"] = provenance.copy()
+                for kind, records in parsed["normalised_dataset"].items():
+                    for ordinal, record in enumerate(records, 1):
+                        record["_provenance"] = {**provenance, "record_id": f"{part_id}:{kind}:{ordinal}"}
                 for raw, index in zip(parsed["user_dataset"]["records"], group.index):
                     raw["_provenance"] = {**provenance, "source_row": int(index)+2}
                     item["raw_records"][int(index)]["_provenance"] = raw["_provenance"].copy()
@@ -98,7 +98,7 @@ def ingest_files(files: list[tuple[str, bytes]], *, session_id: str | None = Non
     return _status(batch)
 
 
-def apply_account_assignments(batch: dict, assignments: dict[str, str]) -> dict:
+def apply_account_assignments(batch: dict, assignments: dict[str, str], *, reason: str = "User supplied or corrected the account assignment; no identity was inferred.") -> dict:
     """Explicit corrections, with original hints retained; never merge records."""
     known = {p["part_id"] for f in batch["files"] for p in f["parts"]}
     if set(assignments) - known:
@@ -109,6 +109,13 @@ def apply_account_assignments(batch: dict, assignments: dict[str, str]) -> dict:
             if part["part_id"] not in assignments:
                 continue
             account_id = _account(assignments[part["part_id"]])
+            previous_account = part["account_id"]
+            if account_id != previous_account:
+                result.setdefault("review_history", []).append({"event": "account_correction", "part_id": part["part_id"],
+                    "source_file": item["filename"], "source_id": item["source_id"], "source_fingerprint": item["fingerprint"],
+                    "previous_account_id": previous_account, "account_id": account_id, "reason": reason.strip() or "User explicitly corrected the account assignment.",
+                    "record_ids": [r["_provenance"].get("record_id", f"{part['part_id']}:{kind}:{ordinal}")
+                                   for kind, rows in part["parsed"]["normalised_dataset"].items() for ordinal, r in enumerate(rows, 1)]})
             part.update(account_id=account_id, account_assignment="user_corrected" if account_id else "unresolved")
             provenance = part["parsed"]["source"]["provenance"]
             provenance.update(account_id=account_id, account_assignment=part["account_assignment"])
@@ -117,4 +124,15 @@ def apply_account_assignments(batch: dict, assignments: dict[str, str]) -> dict:
                     record["_provenance"].update(account_id=account_id, account_assignment=part["account_assignment"])
             for row in part["source_rows"]:
                 item["raw_records"][row-2]["_provenance"].update(account_id=account_id, account_assignment=part["account_assignment"])
+    result.pop("review_confirmation", None)
+    result["duplicate_review"] = "pending"
+    return _status(result)
+
+
+def append_files(batch: dict, files: list[tuple[str, bytes]]) -> dict:
+    """Add immutable sources to an existing draft without erasing review history."""
+    result = deepcopy(batch)
+    result["files"].extend(ingest_files(files)["files"])
+    result.pop("review_confirmation", None)
+    result["duplicate_review"] = "pending"
     return _status(result)

@@ -312,15 +312,15 @@ def normalise_ledger(
     trades["Type"] = event_type.loc[trade_mask]
     trades["Ticker"] = _series(source, mapping, "ticker").loc[trade_mask].map(standardise_ticker)
     trades["Asset Name"] = _series(source, mapping, "asset_name", "").loc[trade_mask].fillna("").astype(str).str.strip()
-    trades["Quantity"] = _series(source, mapping, "quantity").loc[trade_mask].map(clean_number).abs()
+    trades["Quantity"] = pd.to_numeric(_series(source, mapping, "quantity").loc[trade_mask].map(clean_number), errors="coerce").abs()
     trades["Signed Quantity"] = np.where(
         trades["Type"].eq("BUY"),
         trades["Quantity"],
         -trades["Quantity"],
     )
-    trades["Price"] = _series(source, mapping, "price").loc[trade_mask].map(clean_number)
-    trades["Gross Value"] = _series(source, mapping, "gross_value").loc[trade_mask].map(clean_number)
-    trades["Fees"] = _series(source, mapping, "fees", 0.0).loc[trade_mask].map(clean_number).fillna(0.0)
+    trades["Price"] = pd.to_numeric(_series(source, mapping, "price").loc[trade_mask].map(clean_number), errors="coerce")
+    trades["Gross Value"] = pd.to_numeric(_series(source, mapping, "gross_value").loc[trade_mask].map(clean_number), errors="coerce")
+    trades["Fees"] = pd.to_numeric(_series(source, mapping, "fees", 0.0).loc[trade_mask].map(clean_number), errors="coerce").fillna(0.0)
     trades["Transaction ID"] = _series(source, mapping, "transaction_id", "").loc[trade_mask].fillna("").astype(str).str.strip()
     trades["Currency"] = _series(source, mapping, "currency", "").loc[trade_mask].map(standardise_currency)
     trades["Asset Class"] = _series(source, mapping, "asset_class", "").loc[trade_mask].fillna("").astype(str).str.strip()
@@ -340,8 +340,9 @@ def normalise_ledger(
     cashflows["Type"] = event_type.loc[cash_mask]
     amount_series = _series(source, mapping, "amount")
     gross_series = _series(source, mapping, "gross_value")
-    cashflows["Amount"] = amount_series.loc[cash_mask].map(clean_number)
-    fallback_amount = gross_series.loc[cash_mask].map(clean_number)
+    # Empty string-backed subsets must still have numeric monetary dtypes.
+    cashflows["Amount"] = pd.to_numeric(amount_series.loc[cash_mask].map(clean_number), errors="coerce")
+    fallback_amount = pd.to_numeric(gross_series.loc[cash_mask].map(clean_number), errors="coerce")
     cashflows["Amount"] = cashflows["Amount"].fillna(fallback_amount).abs()
     cashflows["Transaction ID"] = _series(source, mapping, "transaction_id", "").loc[cash_mask].fillna("").astype(str).str.strip()
     cashflows["Currency"] = _series(source, mapping, "currency", "").loc[cash_mask].map(standardise_currency)
