@@ -259,6 +259,7 @@ def _lookup_result(
         },
         "portfolio": _position_lookup(selected_state, route.get("ticker")),
         "analytics": {
+            "deep_findings": selected_analytics.get("deep_findings", {}),
             "exposure": selected_analytics.get("exposure", {}),
             "pnl": selected_analytics.get("pnl", {}),
             "risk": selected_analytics.get("risk", {}),
@@ -286,6 +287,7 @@ def _explanation_result(
         "portfolio": _position_lookup(selected_state, ticker),
         "analytics": {
             "meta": selected_analytics.get("meta", {}),
+            "deep_findings": selected_analytics.get("deep_findings", {}),
             "exposure": selected_analytics.get("exposure", {}),
             "pnl": selected_analytics.get("pnl", {}),
             "risk": selected_analytics.get("risk", {}),

@@ -28,7 +28,7 @@ def test_manual_mixed_currency_portfolio_reaches_dashboard_with_consistent_accou
         "Asset Class": ["Equity", "Equity", "Cash"],
     })
     app.run()
-    app.radio[0].set_value("Manual entry").run()
+    next(r for r in app.radio if r.label == "Input method").set_value("Manual entry").run()
     next(button for button in app.button if button.label == "Parse & Analyse Portfolio").click().run(timeout=20)
     assert not app.exception, [e.message for e in app.exception]
     assert not app.error, [e.value for e in app.error]
