@@ -1,0 +1,11 @@
+Parent Fund,Constituent Ticker,Constituent Name,Weight,Weight Format,As Of Date,Source,Asset Class,Currency
+VOO,NVDA,Nvidia,15.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,AAPL,Apple,10.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,MSFT,Microsoft,10.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,AVGO,Broadcom,5.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,AMD,AMD,3.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,ORCL,Oracle,3.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,ADBE,Adobe,2.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,CRM,Salesforce,2.0,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,INTC,Intel,1.5,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD
+VOO,CSCO,Cisco,1.5,percentage,2026-10-09,Synthetic validation fixture; not live issuer holdings; top ten only,Equity,USD

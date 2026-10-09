@@ -66,6 +66,11 @@ def _finding(finding: dict, deep: dict) -> None:
 
 def render_discover(state: dict | None, analytics: dict | None) -> None:
     st.subheader("Deep Analytics")
+    view = st.radio("Deep Analytics view", ["Discover", "Exposure"], horizontal=True, key="deep_analytics_view")
+    if view == "Exposure":
+        from portfolio_analytics.ui.constituents import render_exposure
+        render_exposure(state)
+        return
     st.caption("Discover · What matters, why it matters, and where to investigate next.")
     if analytics and analytics.get("trust_diagnostics"):
         render_trust(analytics["trust_diagnostics"])

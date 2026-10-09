@@ -1,0 +1,4 @@
+Ticker,ISIN,Asset Name,Asset Class,Quantity,Current Price,Currency
+VOO,US9229083632,Vanguard S&P 500 ETF,ETF,5,500,USD
+VGT,US92204A7028,Vanguard Information Technology ETF,ETF,4,700,USD
+NVDA,US67066G1040,Nvidia,Equity,10,100,USD
