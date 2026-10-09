@@ -22,6 +22,7 @@ import streamlit as st
 
 from portfolio_analytics.ai.copilot import ask_copilot
 from portfolio_analytics.security.ai_access import AIUnavailable, policy, identity, authorised_request
+from portfolio_analytics.security.demo_quota import remaining, authorised_demo_question, EXHAUSTED
 from portfolio_analytics.security.session import synchronise_owner
 from portfolio_analytics.analytics.engine import run_analytics, run_account_performance, returns_from_analytics
 from portfolio_analytics.analytics.combination_risk import calculate_combination_risk
@@ -368,9 +369,19 @@ with copilot_col:
     st.subheader("AI Copilot")
     st.caption("Connected to parser, Portfolio State, analytics and scenario functions. Python calculates; Copilot interprets and explains.")
     paid_access = False
+    demo_access = False
+    allowance = st.empty()
     try:
-        policy()
-        identity(st.user)
+        access_policy = policy()
+        demo_access = access_policy.mode == 'public_demo'
+        if demo_access:
+            questions_left = remaining(st.context.headers)
+            allowance.caption(f'{questions_left} of 5 AI questions remaining for this network across the demo. No daily reset. Accepted questions count even if AI fails.')
+            st.caption('Quota records use a private keyed network hash, not a stored raw IP. Shared networks share the allowance. Records are deleted within 7 days after the demo ends; analytics remain session-only.')
+            if questions_left == 0:
+                raise AIUnavailable(EXHAUSTED)
+        else:
+            identity(st.user)
         paid_access = bool(api_key)
         if not paid_access:
             st.info("Paid Copilot is unavailable: server credentials are not configured.")
@@ -428,7 +439,9 @@ with copilot_col:
                 st.session_state.copilot_messages = st.session_state.copilot_messages[-10:]
                 st.session_state.copilot_messages.append({"role": "user", "content": question})
                 try:
-                    with authorised_request(st.user, ai_consent), st.spinner("Copilot is reading the portfolio engines..."):
+                    authorisation = (authorised_demo_question(st.context.headers, ai_consent, question)
+                                     if demo_access else authorised_request(st.user, ai_consent))
+                    with authorisation, st.spinner("Copilot is reading the portfolio engines..."):
                         response = ask_copilot(
                             question,
                             parsed=st.session_state.parsed,
@@ -445,6 +458,11 @@ with copilot_col:
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc) if isinstance(exc, AIUnavailable) else "Copilot could not complete that request. No portfolio changes were accepted.")
+                    if demo_access:
+                        try:
+                            allowance.caption(f'{remaining(st.context.headers)} of 5 AI questions remaining for this network across the demo. No daily reset.')
+                        except AIUnavailable:
+                            allowance.caption('AI allowance is unavailable; requests are paused.')
 
         control_col1, control_col2 = st.columns(2)
         with control_col1:

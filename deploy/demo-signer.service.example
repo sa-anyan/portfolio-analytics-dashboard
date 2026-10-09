@@ -1,0 +1,24 @@
+[Unit]
+Description=Private Portfolio demo ingress signer
+After=network.target
+[Service]
+User=portfolio-demo
+Group=portfolio-demo
+WorkingDirectory=/opt/portfolio-demo/current
+EnvironmentFile=/etc/portfolio-demo/demo.env
+UnsetEnvironment=OPENAI_API_KEY
+ExecStart=/opt/portfolio-demo/venv/bin/python scripts/demo_ingress_signer.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=8
+LimitNOFILE=64
+[Install]
+WantedBy=multi-user.target

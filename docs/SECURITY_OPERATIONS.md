@@ -6,7 +6,7 @@ Release status is NOT READY pending subsequent integrated acceptance. No deploym
 
 `AI_ACCESS_POLICY=disabled` is the default, including when an OpenAI key exists. Provider calls, anonymous requests and automatic captions are blocked. Portfolio upload/navigation, Discover, Exposure, Trust, consolidation and deterministic scenarios remain available. A session counter is informational only, never an enforcement mechanism.
 
-The only opt-in policy is `controlled_oidc`. Operators must provision and independently validate all of:
+The authenticated opt-in policy is `controlled_oidc`. A separately gated public demo policy is documented in [PUBLIC_AI_DEMO.md](PUBLIC_AI_DEMO.md); it remains disabled until approved and host-verified. Operators must provision and independently validate all of:
 
 - Streamlit OIDC `[auth]` secrets: trusted issuer metadata, client ID/secret, random cookie secret and exact HTTPS redirect URI. The separate Linux-only `requirements-controlled.lock` pins Authlib and patched cryptography; paid access rejects a missing/outdated auth stack. Default runtime needs neither. Do not expose tokens. Test issuer/audience/signature validation, login, logout and expiration with the actual provider before enabling paid access. The app additionally checks issuer, allowlisted subject and token expiry; email/form fields are never identity.
 - `AI_OIDC_ISSUER=https://...`, `AI_ALLOWED_SUBJECTS=subject1,subject2`. Only explicit subjects may use paid AI.

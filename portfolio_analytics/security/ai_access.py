@@ -35,19 +35,23 @@ class Policy:
     concurrency: int = 2
     max_input_bytes: int = 32_000
     max_output_tokens: int = 1000
+    mode: str = 'controlled_oidc'
+    demo_requests: int = 20
+    demo_tokens: int = 500_000
 
 
 def policy():
     if os.getenv('OPENAI_LOG', '').lower() not in {'', 'warning', 'error', 'critical'}:
         raise AIUnavailable('Verbose provider logging is prohibited for portfolio submissions.')
-    if os.getenv('AI_ACCESS_POLICY', 'disabled') != 'controlled_oidc':
+    mode = os.getenv('AI_ACCESS_POLICY', 'disabled')
+    if mode not in {'controlled_oidc', 'public_demo'}:
         raise AIUnavailable('Paid Copilot is disabled by server policy.')
     if os.getenv('AI_DEPLOYMENT_ARCHITECTURE') != 'single_host':
         raise AIUnavailable('Paid Copilot requires verified single-host budget storage.')
     path = Path(os.getenv('AI_BUDGET_DB_PATH', ''))
     issuer = os.getenv('AI_OIDC_ISSUER', '').strip()
     subjects = frozenset(s.strip() for s in os.getenv('AI_ALLOWED_SUBJECTS', '').split(',') if s.strip())
-    if not path.is_absolute() or not issuer.startswith('https://') or not subjects:
+    if not path.is_absolute() or (mode == 'controlled_oidc' and (not issuer.startswith('https://') or not subjects)):
         raise AIUnavailable('Paid Copilot configuration is incomplete.')
     def limit(name, default):
         try:
@@ -57,10 +61,14 @@ def policy():
             return value
         except ValueError:
             raise AIUnavailable('Paid Copilot limit configuration is invalid.') from None
+    if mode == 'public_demo':
+        from portfolio_analytics.security.demo_quota import configuration
+        configuration()
     return Policy(path, issuer, subjects,
         user_requests=limit('AI_USER_DAILY_REQUESTS', 10), user_tokens=limit('AI_USER_DAILY_TOKENS', 100_000),
         global_requests=limit('AI_GLOBAL_MONTHLY_REQUESTS', 100), global_tokens=limit('AI_GLOBAL_MONTHLY_TOKENS', 1_000_000),
-        concurrency=limit('AI_MAX_CONCURRENT_REQUESTS', 2))
+        concurrency=limit('AI_MAX_CONCURRENT_REQUESTS', 1 if mode == 'public_demo' else 2), mode=mode,
+        demo_requests=limit('AI_DEMO_TOTAL_REQUESTS', 20), demo_tokens=limit('AI_DEMO_TOTAL_TOKENS', 500_000))
 
 
 def verify_auth_stack():
@@ -74,6 +82,8 @@ def verify_auth_stack():
 def identity(user):
     """Only call with Streamlit's server-verified OIDC user, never form fields."""
     p = policy()
+    if p.mode != 'controlled_oidc':
+        raise AIUnavailable('This service requires a verified demo question.')
     verify_auth_stack()
     try:
         if not user.is_logged_in or user.get('iss') != p.issuer or user.get('sub') not in p.allowed_subjects:
@@ -139,7 +149,10 @@ def reserve(input_bytes, output_tokens):
             user_count, user_tokens = db.execute('SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM reservations WHERE actor=? AND day=?', (actor,day)).fetchone()
             global_count, global_tokens = db.execute('SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM reservations WHERE month=?', (month,)).fetchone()
             active = db.execute('SELECT COUNT(*) FROM reservations WHERE active=1').fetchone()[0]
-            if user_count >= p.user_requests or user_tokens+tokens > p.user_tokens:
+            if p.mode == 'public_demo':
+                from portfolio_analytics.security.demo_quota import provider_attempt
+                provider_attempt(db, p, actor, tokens)
+            if p.mode != 'public_demo' and (user_count >= p.user_requests or user_tokens+tokens > p.user_tokens):
                 raise AIUnavailable('Your daily AI request/token allowance is exhausted.')
             if global_count >= p.global_requests or global_tokens+tokens > p.global_tokens:
                 raise AIUnavailable('Shared monthly AI request/token allowance is exhausted.')
