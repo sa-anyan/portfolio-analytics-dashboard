@@ -12,7 +12,7 @@ def _save_policy() -> None:
     }
 
 
-def render_trust(report: dict, *, rejected: bool = False, controls: bool = True) -> None:
+def render_trust(report: dict, *, rejected: bool = False, controls: bool = True, key_prefix: str = "") -> None:
     st.markdown("**Data Quality / Trust**" + (" · Rejected submission" if rejected else ""))
     status = report.get("valuation_status", "unknown")
     summary = f"Reporting currency: {report.get('reporting_currency') or 'unknown'} · Valuation: {status} · Risk: {report.get('risk_status', 'unavailable')} · Actual performance: {report.get('actual_performance_status', 'unavailable')} · Checked on: {report.get('as_of')}"
@@ -49,4 +49,4 @@ def render_trust(report: dict, *, rejected: bool = False, controls: bool = True)
             st.number_input("Maximum price age (calendar days)", min_value=0, max_value=365, value=report["policy"]["max_price_age_days"], step=1, key="trust_price_max_age_days", on_change=_save_policy)
             st.caption("Age exceeding the rule is stale. Unknown FX dates block aggregates. Stale or undated prices carry warnings. These are configurable review rules, not validated confidence scores or exchange calendars.")
         path = Path(__file__).resolve().parents[2] / "docs" / "MATH_METHODOLOGY.md"
-        st.download_button("Calculation methodology", path.read_text(), file_name="MATH_METHODOLOGY.md", mime="text/markdown", key="trust_methodology_rejected" if rejected else "trust_methodology_accepted")
+        st.download_button("Calculation methodology", path.read_text(), file_name="MATH_METHODOLOGY.md", mime="text/markdown", key=key_prefix + ("trust_methodology_rejected" if rejected else "trust_methodology_accepted"))

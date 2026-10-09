@@ -647,4 +647,8 @@ def refresh_state_totals(state: dict[str, Any]) -> dict[str, Any]:
         ),
     })
 
+    if result.get("meta", {}).get("path") == "consolidated" and any(row.get("cost_basis") is None for row in rows):
+        result["totals"]["cost_basis"] = None
+        result["totals"]["unrealised_pnl"] = None
+
     return result

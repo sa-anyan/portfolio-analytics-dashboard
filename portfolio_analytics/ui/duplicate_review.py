@@ -81,9 +81,9 @@ def render_duplicate_review(batch: dict) -> None:
         with st.expander("Full review audit evidence"):
             st.json(batch["review_history"])
     if view["review_confirmed"]:
-        st.success("Review decisions confirmed. Financial consolidation and Trust validation await Milestone 2B-3.")
+        st.success("Review decisions confirmed. Consolidate and validate before financial acceptance.")
     elif view["can_progress"]:
-        st.caption("No unresolved material import conflicts. Confirm the review; financial acceptance remains unavailable.")
+        st.caption("No unresolved material import conflicts. Confirm the review to enable consolidation and financial validation.")
     else:
         st.warning("Progression to consolidation is blocked until identity conflicts are resolved and at least one valid record is retained.")
     if st.button("Confirm review decisions", disabled=not view["can_progress"]):
