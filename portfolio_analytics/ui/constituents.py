@@ -2,6 +2,7 @@
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
+import json
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,19 @@ def percent(value):
         return 'Unknown / unresolved'
     number = float(value)
     return f'{number*100:g}%'
+
+
+def security_identity(security):
+    """Use verified typed identifiers, never a rank, display name or monetary value."""
+    identifiers = [(kind, sorted(values)) for kind, values in sorted(security['identifiers'].items()) if values]
+    if not identifiers:
+        raise ValueError('Underlying security has no verified identity')
+    return json.dumps(identifiers, separators=(',', ':'))
+
+
+def remember_exposure_selection():
+    # Streamlit deletes widget state when navigating away; retain the identity separately.
+    st.session_state['exposure_selected_identity'] = st.session_state['exposure_security']
 
 
 def render_exposure(state):
@@ -206,9 +220,23 @@ def render_lookthrough(state, store, catalog, maximum):
                  'Known total': float(r['known_total']), 'Equity %': float(r['equity_fraction'])*100 if r['equity_fraction'] is not None else None,
                  'Funds': ', '.join(r['indirect_by_fund'])} for r in securities[:10]]
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-        keys = [' / '.join(v[0] for v in r['identifiers'].values() if v) for r in securities]
-        index = st.selectbox('Investigate underlying security', range(len(securities)), format_func=lambda i: securities[i]['name']+' · '+keys[i], key='exposure_security')
-        selected = securities[index]
+        by_identity = {security_identity(r): r for r in securities}
+        if len(by_identity) != len(securities):
+            st.error('Underlying identities conflict; security investigation is unavailable.')
+            return
+        options = list(by_identity)
+        remembered = st.session_state.get('exposure_selected_identity')
+        if remembered not in by_identity:
+            remembered = options[0]
+        st.session_state['exposure_selected_identity'] = remembered
+        st.session_state['exposure_security'] = remembered
+        def label(identity):
+            security = by_identity[identity]
+            identifiers = ' / '.join(v[0] for v in security['identifiers'].values() if v)
+            return security['name']+' · '+identifiers
+        identity = st.selectbox('Investigate underlying security', options, format_func=label,
+            key='exposure_security', on_change=remember_exposure_selection)
+        selected = by_identity[identity]
         st.write(f"Known {selected['name']} exposure: {float(selected['known_total']):,.2f} {currency} · direct {float(selected['direct']):,.2f} {currency}.")
         if selected['indirect_by_fund']:
             st.dataframe(pd.DataFrame([{'Parent fund': p, 'Indirect exposure': float(v), 'Currency': currency} for p,v in selected['indirect_by_fund'].items()]), hide_index=True, use_container_width=True)

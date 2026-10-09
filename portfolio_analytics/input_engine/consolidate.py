@@ -194,7 +194,9 @@ def prepare_consolidation(batch, *, declarations, latest_prices=None, market_met
         position['currency'] = next(iter(currencies[ticker]))
         position['local_current_price'] = prices[ticker]
         position['account_provenance'] = [r for r in records if r['data'].get('Ticker') == ticker]
-        position['realised_pnl'] = sum(p['realised_pnl'] for s in account_states.values() for p in s['positions'] if p['ticker'] == ticker) if all_ledgers else None
+        constituent_positions = [p for s in account_states.values() for p in s['positions'] if p['ticker'] == ticker]
+        position['realised_pnl'] = (sum(p['realised_pnl'] for p in constituent_positions)
+            if all(p['realised_pnl'] is not None for p in constituent_positions) else None)
     state['inputs']['normalised_dataset'] = deepcopy(normalised)
     state['inputs']['user_dataset'] = deepcopy(parsed['user_dataset'])
     state['accounting_history'] = {'available': all_ledgers, 'method': 'complete reviewed account ledgers' if all_ledgers else None,

@@ -47,7 +47,7 @@ def _trade_to_quantity(
     state: dict[str, Any],
     ticker: str,
     new_quantity: float,
-) -> tuple[dict[str, Any], dict[str, float]]:
+) -> tuple[dict[str, Any], dict[str, float | None]]:
     """Execute one hypothetical trade at the current scenario mark.
 
     This helper preserves the accounting identity of the scenario book. It updates
@@ -110,8 +110,10 @@ def _trade_to_quantity(
                 realised_change = closing_quantity * (price - old_entry)
             else:
                 realised_change = closing_quantity * (old_entry - price)
+        else:
+            realised_change = None  # A disposal with unknown basis has unknown incremental P&L.
 
-        row["realised_pnl"] = (float(row["realised_pnl"]) + realised_change) if row.get("realised_pnl") is not None else None
+        row["realised_pnl"] = (float(row["realised_pnl"]) + realised_change) if row.get("realised_pnl") is not None and realised_change is not None else None
         row["quantity"] = new_quantity
 
         if abs(new_quantity) < 1e-15:
@@ -125,7 +127,7 @@ def _trade_to_quantity(
 
     result["totals"]["realised_pnl"] = (
         float(result["totals"]["realised_pnl"]) + realised_change
-        if result.get("totals", {}).get("realised_pnl") is not None else None
+        if result.get("totals", {}).get("realised_pnl") is not None and realised_change is not None else None
     )
     result = refresh_state_totals(result)
 
