@@ -1,5 +1,6 @@
-"""Optional Exposure input workspace; it never computes look-through exposure."""
+"""Supplementary input review and read-only underlying exposure workspace."""
 from copy import deepcopy
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -18,8 +19,7 @@ def percent(value):
 
 
 def render_exposure(state):
-    st.caption('Exposure · Constituent data inputs. Direct analysis remains available without uploads.')
-    st.info('Phase 3A prepares fund data only. Combined direct/indirect company exposure and look-through risk remain unavailable, not zero; they await Phase 3B.')
+    st.caption('Exposure · Known underlying securities. Owned holdings and canonical equity remain unchanged.')
     catalog = identity_catalog(state, parsed=st.session_state.get('parsed'), accepted_batch=st.session_state.get('accepted_consolidation_batch'))
     if not catalog:
         st.info('Accept a portfolio before linking constituent data to its funds.')
@@ -27,7 +27,8 @@ def render_exposure(state):
     store = st.session_state.get('fund_constituents', {})
     maximum = int(st.number_input('Maximum constituent age (calendar days)', min_value=0, max_value=3650, value=90, step=1, key='constituent_max_age'))
     st.caption('Freshness is an explicit calendar-day review rule, not an issuer update schedule or a guarantee.')
-    with st.expander('Accepted constituent coverage and funds without data', expanded=bool(store)):
+    render_lookthrough(state, store, catalog, maximum)
+    with st.expander('Accepted constituent coverage and funds without data'):
         rows = []
         for ticker, item in catalog.items():
             snapshot = store.get(ticker)
@@ -166,3 +167,60 @@ def render_exposure(state):
         st.session_state.setdefault('rejected_constituent_drafts', []).append(deepcopy({'draft': draft, 'decisions': decisions}))
         st.session_state['constituent_draft'] = None
         st.rerun()
+
+
+def render_lookthrough(state, store, catalog, maximum):
+    from portfolio_analytics.analytics.lookthrough import calculate_lookthrough, eligibility_declaration, is_fund
+    from portfolio_analytics.ui.discover import queue_copilot_question
+    declarations = st.session_state.get('fund_eligibility', {})
+    funds = [t for t, item in catalog.items() if is_fund(item) or t in store]
+    with st.expander('Fund eligibility · review instrument structure and weight basis'):
+        st.caption('Only ordinary long-only equity funds with whole-fund capital-allocation weights are supported. Leveraged, inverse, derivative and nested structures are unavailable. This is an attestation, not issuer verification.')
+        if funds:
+            parent = st.selectbox('Fund eligibility to review', funds, key='eligibility_parent')
+            confirmed = st.checkbox('Confirm ordinary equity fund and whole-fund capital weights', key='eligibility_confirm_'+parent)
+            reason = st.text_input('Eligibility evidence / reason', key='eligibility_reason_'+parent)
+            if st.button('Save fund eligibility', disabled=not confirmed or not reason.strip()):
+                updated = deepcopy(declarations)
+                updated[parent] = eligibility_declaration(catalog[parent], reason)
+                st.session_state['fund_eligibility'] = updated
+                st.rerun()
+            if parent in declarations and st.button('Revoke fund eligibility'):
+                updated = deepcopy(declarations); updated.pop(parent)
+                st.session_state['fund_eligibility'] = updated
+                st.rerun()
+    result = calculate_lookthrough(state, store, catalog, declarations=declarations,
+        trust=(st.session_state.get('analytics') or {}).get('trust_diagnostics', {}), max_age_days=maximum)
+    st.markdown('**Largest known underlying exposures**')
+    currency = result['reporting_currency']
+    st.caption(f'Reporting currency: {currency}. Legal holdings remain in the dashboard. Security/share-class exposure does not merge separate share classes into an issuer total.')
+    if not result['valuation_valid']:
+        st.error('Canonical valuation is invalid; monetary look-through and equity percentages are unavailable.')
+    if not result['complete_ranking']:
+        st.warning('Limited composition: this is a ranking of known exposures, not a complete economic concentration ranking. Unreported holdings may include securities already shown. Unknown is not zero.')
+    else:
+        st.caption('Complete reported composition within the supported equity scope; excluded assets and source assumptions remain disclosed below.')
+    securities = result['securities']
+    if securities:
+        rows = [{'Security': r['name'], 'Direct': float(r['direct']), 'Indirect': float(sum(Decimal(v) for v in r['indirect_by_fund'].values())),
+                 'Known total': float(r['known_total']), 'Equity %': float(r['equity_fraction'])*100 if r['equity_fraction'] is not None else None,
+                 'Funds': ', '.join(r['indirect_by_fund'])} for r in securities[:10]]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        keys = [' / '.join(v[0] for v in r['identifiers'].values() if v) for r in securities]
+        index = st.selectbox('Investigate underlying security', range(len(securities)), format_func=lambda i: securities[i]['name']+' · '+keys[i], key='exposure_security')
+        selected = securities[index]
+        st.write(f"Known {selected['name']} exposure: {float(selected['known_total']):,.2f} {currency} · direct {float(selected['direct']):,.2f} {currency}.")
+        if selected['indirect_by_fund']:
+            st.dataframe(pd.DataFrame([{'Parent fund': p, 'Indirect exposure': float(v), 'Currency': currency} for p,v in selected['indirect_by_fund'].items()]), hide_index=True, use_container_width=True)
+        with st.expander('Supporting calculations and identity evidence'):
+            st.caption('Each indirect amount uses the current canonical parent value × original constituent weight. Constituent listing currency is not economic currency exposure. No additional FX is applied.')
+            st.json(selected)
+        st.button('Prepare exposure question for Copilot', on_click=queue_copilot_question,
+            args=(f"Explain the known direct and indirect exposure to {selected['name']}, fund contributions and coverage limitations using lookthrough evidence. Do not infer unavailable exposures.",))
+    else:
+        st.info('No supported underlying exposures are available. Review valuation, fund eligibility and constituent inputs below.')
+    with st.expander('Exposure findings, coverage and reconciliation'):
+        for finding in result['findings']:
+            st.write((finding.get('security') or finding.get('parent') or 'Portfolio')+' · '+finding['explanation'])
+        st.json({'funds': result['funds'], 'reconciliation': result['reconciliation'], 'known_is_lower_bound': result['known_is_lower_bound'], 'methodology': result['methodology']})
+        st.caption('A lower-bound interpretation requires positive supported capital exposures and usable identity/date evidence. It is not a current-price guarantee or a risk estimate. Arithmetic reconciliation cannot verify an unverified composition.')

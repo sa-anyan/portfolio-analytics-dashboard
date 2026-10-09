@@ -46,8 +46,8 @@ def test_maya_stages_three_files_corrects_accounts_and_preserves_discover_copilo
     assert app.session_state["portfolio_state"] == state
     # Trust re-evaluation is allowed; every numerical engine output remains unchanged.
     current = copy.deepcopy(app.session_state["analytics"])
-    current.pop("trust_diagnostics")
-    analytics.pop("trust_diagnostics")
+    current.pop("trust_diagnostics"); current.pop("lookthrough", None)
+    analytics.pop("trust_diagnostics"); analytics.pop("lookthrough", None)
     assert current == analytics and calls == fetched
     assert app.session_state["copilot_uses"] == 0
 

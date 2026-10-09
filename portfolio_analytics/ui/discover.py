@@ -90,7 +90,7 @@ def render_discover(state: dict | None, analytics: dict | None) -> None:
     st.caption(f"Accepted portfolio · Reporting currency: {state.get('meta', {}).get('base_currency', 'USD')} · {len(state.get('positions', []))} open security positions")
     if not state.get("positions"):
         st.info("This portfolio has no open security positions. Security concentration is undefined; any retained cash remains in the accepted account.")
-    st.caption("ETF look-through is unavailable. Indirect company exposure is unknown, not zero; these findings describe direct securities only.")
+    st.caption("These findings describe direct securities only. Open Exposure for known direct-plus-indirect securities, eligibility and coverage; unavailable indirect exposure is unknown, not zero.")
     findings = deep.get("findings", [])
     if analytics.get("trust_diagnostics", {}).get("risk_status") == "unavailable":
         findings = [f for f in findings if f.get("id") not in {"risk_driver", "capital_vs_risk"}]

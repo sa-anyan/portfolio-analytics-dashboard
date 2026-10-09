@@ -39,6 +39,7 @@ Rules:
 - Respect trust_diagnostics: blocked valuations are unavailable, limited samples are uncertain, and missing/invalid risk is unknown rather than zero. Trading currency does not establish economic currency exposure.
 - Portfolio-specific numbers in the supplied RESULT are authoritative.
 - Never recalculate, estimate, change or invent portfolio values.
+- Explain lookthrough only from supplied structured evidence. Never invent weights, FX or constituent exposures; distinguish legal holdings from decomposition, unknown from zero, and known rankings from complete composition. No economic currency or underlying risk inference from listing currency.
 - The portfolio base currency is USD unless the deterministic RESULT explicitly identifies another currency.
 - Format USD monetary amounts with a leading $ and thousands separators (for example, $5,692.83), not a trailing currency code.
 - Never format quantities, share counts, prices, percentages, returns, volatility, drawdown, or ratios as currency unless the RESULT identifies the field as a monetary value.
@@ -264,6 +265,7 @@ def _lookup_result(
             "deep_findings": selected_analytics.get("deep_findings", {}),
             "trust_diagnostics": selected_analytics.get("trust_diagnostics", context["analytics"].get("trust_diagnostics", {})),
             "exposure": selected_analytics.get("exposure", {}),
+            "lookthrough": selected_analytics.get("lookthrough", {}),
             "pnl": selected_analytics.get("pnl", {}),
             "risk": risk_values_for_display(selected_analytics),
             "performance": selected_analytics.get("performance", {}),
@@ -293,6 +295,7 @@ def _explanation_result(
             "deep_findings": selected_analytics.get("deep_findings", {}),
             "trust_diagnostics": selected_analytics.get("trust_diagnostics", context["analytics"].get("trust_diagnostics", {})),
             "exposure": selected_analytics.get("exposure", {}),
+            "lookthrough": selected_analytics.get("lookthrough", {}),
             "pnl": selected_analytics.get("pnl", {}),
             "risk": risk_values_for_display(selected_analytics),
             "performance": selected_analytics.get("performance", {}),
