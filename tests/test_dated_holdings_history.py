@@ -37,7 +37,7 @@ def test_account_performance_uses_purchase_dates_and_prices():
     assert len(result["portfolio_path"]) >= 2
 
 
-def test_static_history_ignores_columns_with_no_return_observations():
+def test_static_history_withholds_full_portfolio_metrics_when_an_asset_has_no_returns():
     frame = pd.DataFrame([
         {"Ticker": "AAA", "Quantity": 1, "Current Price": 100},
         {"Ticker": "BAD", "Quantity": 1, "Current Price": 100},
@@ -47,8 +47,9 @@ def test_static_history_ignores_columns_with_no_return_observations():
     idx = pd.date_range("2024-01-01", periods=5, freq="D")
     prices = pd.DataFrame({"AAA": [100, 101, 102, 103, 104], "BAD": [None]*5}, index=idx)
     analytics = run_analytics(state, prices)
-    assert analytics["performance"]["observations"] > 0
-    assert analytics["series"]["portfolio_path"]
+    assert analytics["performance"]["observations"] == 0
+    assert not analytics["series"]["portfolio_path"]
+    assert analytics["meta"]["coverage"]["missing_tickers"] == ["BAD"]
 
 
 def test_dated_holdings_external_funding_is_not_counted_as_return():
@@ -126,14 +127,15 @@ def test_dated_accounting_converts_mixed_currencies_to_usd_without_counting_cont
 
 
 def test_unresolved_fx_gap_is_not_silently_treated_as_one():
-    from portfolio_analytics.analytics.engine import _ledger_equity_curve
+    from portfolio_analytics.analytics.engine import run_account_performance
     state = {
         "accounting_history": {"available": True, "trades": [{"Date":"2025-01-02","Ticker":"UK","Signed Quantity":1,"Price":100,"Fees":0,"Currency":"GBP"}], "cashflows": [{"Date":"2025-01-02","Type":"DEPOSIT","Amount":100,"Currency":"GBP"}]},
         "cash": {"starting": 0.0},
     }
     prices = pd.DataFrame({"UK":[100,101]}, index=pd.to_datetime(["2025-01-02","2025-01-03"]))
-    curve = _ledger_equity_curve(state, prices, fx_history=pd.DataFrame({"USD":[1,1]}, index=prices.index), base_currency="USD")
-    assert curve["equity"].isna().all()
+    result = run_account_performance(state, prices, fx_history=pd.DataFrame({"USD":[1,1]}, index=prices.index), base_currency="USD")
+    assert not result["available"]
+    assert "GBP" in result["reason"]
 
 
 def test_holdings_snapshot_uses_first_market_mark_not_purchase_price_for_entry_return():

@@ -119,7 +119,7 @@ The analytics engine includes deterministic historical combination-risk analysis
 
 ## Dated Portfolio Performance
 
-Dated holdings now preserve purchase dates and purchase prices during normalisation. Portfolio State converts those supplied acquisitions into accounting events, while transaction-ledger uploads continue to use their explicit executions and cash flows. The analytics engine can reconstruct the dated account path using the same deterministic equity-curve logic. Historical Behaviour remains the current-holdings simulation by default; when dated accounting information exists, **View your actual portfolio performance** switches the existing growth and drawdown charts to the reconstructed dated path. A holdings snapshot is labelled as reconstructed because it cannot reveal previously sold positions or unsupplied historical cash flows.
+Dated holdings now preserve purchase dates and purchase prices during normalisation. Portfolio State converts those supplied acquisitions into accounting events, while transaction-ledger uploads continue to use their explicit executions and cash flows. The analytics engine can reconstruct the dated account path using the same deterministic equity-curve logic. Historical Behaviour remains the current-holdings simulation by default; when dated accounting information exists, **View dated account / reconstructed holdings history** switches the existing growth and drawdown charts to the reconstructed dated path. A holdings snapshot is labelled as reconstructed because it cannot reveal previously sold positions or unsupplied historical cash flows.
 
 ### Accounting-led dated performance
 Dated holdings are reconstructed through the accounting path: each current position enters on its supplied purchase date at its supplied purchase price, inferred acquisition funding is recorded as an external contribution, and cash-flow-adjusted returns prevent new capital from being mistaken for investment performance. Transaction ledgers continue to use supplied execution prices and dated cash flows. The existing historical simulation remains the default and the UI toggle switches the existing growth/drawdown charts to the reconstructed account path.
@@ -128,6 +128,12 @@ Dated holdings are reconstructed through the accounting path: each current posit
 
 For a holdings snapshot with purchase dates, the actual-performance view is a reconstruction of the **currently held positions**, not a synthetic transaction ledger. A position is absent before its supplied purchase date and is valued thereafter using historical market prices and historical FX converted to USD. The supplied purchase price remains cost-basis information. On the entry date, the position's first market mark is treated as an external capital addition for return chaining, preventing a difference between execution price and daily close from becoming a fake investment return. The reconstructed value chart shows account market value; return, volatility, Sharpe and drawdown use the separate cash-flow-adjusted performance series. Previously sold positions and unknown historical cash movements cannot be inferred from a holdings snapshot.
 
+
+## Mathematical validation and currency accounting
+
+Portfolio values, cost basis, risk and scenarios use USD consistently, including historical FX and retained foreign-currency cash. Missing coverage withholds complete-portfolio metrics. Risk prices and account marks are separate; duplicate dated lots accumulate; drawdown starts from initial capital; attribution includes cash in its denominator and geometrically reconciles; opening capital is excluded from account gain.
+
+See [calculation conventions, assumptions and recovery instructions](docs/MATH_METHODOLOGY.md). Run `python -m pytest -q` for the numerical regressions and existing tests.
 
 ## Design Decisions, Assumptions & Limitations
 
@@ -153,7 +159,7 @@ Unless explicitly supplied, the system cannot determine:
 
 For this reason, dated-holdings performance is labelled as a **reconstruction of the currently held positions**, rather than a complete historical account record.
 
-A transaction ledger can provide a more complete reconstruction because BUY, SELL, DIVIDEND, TRANSFER and other supplied cash-flow events can be processed explicitly.
+A transaction ledger can provide a more complete reconstruction because BUY, SELL, DIVIDEND, DEPOSIT and WITHDRAWAL events can be processed explicitly.
 
 ### Portfolio value vs investment performance
 
@@ -169,7 +175,7 @@ Position entry is therefore treated as an external capital addition when chainin
 
 The supplied purchase price is retained as accounting and cost-basis information.
 
-Historical portfolio valuation uses available daily market prices. Because daily data generally represents market closes, the historical close on a purchase date may differ from the investor's actual execution price. The system does not treat that difference as an investment gain or loss on entry.
+Historical portfolio valuation uses available daily market prices. Because daily data generally represents market closes, the historical close on a purchase date may differ from the investor's actual execution price. The dated snapshot does not treat that difference as an investment gain or loss on entry. Explicit ledger executions do include execution-to-close P&L.
 
 The reconstruction operates at daily resolution and does not attempt to recreate intraday portfolio movements.
 

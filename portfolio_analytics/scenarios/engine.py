@@ -83,6 +83,9 @@ def _trade_to_quantity(
     result["cash"]["current"] = (
         float(result["cash"].get("current", 0.0) or 0.0) + cash_change
     )
+    if "balances" in result["cash"]:
+        base = result.get("meta", {}).get("base_currency", "USD")
+        result["cash"]["balances"][base] = result["cash"]["balances"].get(base, 0.0) + cash_change
 
     realised_change = 0.0
 
@@ -168,6 +171,9 @@ def _add_position(
         "rate_sensitivity": None,
     })
     result["cash"]["current"] = float(result["cash"].get("current", 0.0) or 0.0) - signed_quantity * float(price)
+    if "balances" in result["cash"]:
+        base = result.get("meta", {}).get("base_currency", "USD")
+        result["cash"]["balances"][base] = result["cash"]["balances"].get(base, 0.0) - signed_quantity * float(price)
     return refresh_state_totals(result)
 
 
@@ -426,7 +432,10 @@ def apply_target_risk(
         raise ValueError("Current annual volatility is unavailable, so target risk cannot be solved.")
 
     scale = target / float(current_vol)
-    if scale > 1.0 and not allow_leverage:
+    cash_after = float(state.get("cash", {}).get("current", 0.0)) - (scale - 1.0) * float(state.get("totals", {}).get("net_exposure", 0.0))
+    gross_after = scale * float(state.get("totals", {}).get("gross_exposure", 0.0))
+    equity = float(state.get("totals", {}).get("equity", 0.0))
+    if scale > 1.0 and not allow_leverage and (cash_after < -1e-9 or gross_after > equity + 1e-9):
         raise ValueError(
             "Target risk is above current risk. Increasing exposure would require leverage; "
             "set allow_leverage=true to permit it."

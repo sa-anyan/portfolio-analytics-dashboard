@@ -18,7 +18,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from portfolio_analytics.analytics.engine import TRADING_DAYS
+from portfolio_analytics.analytics.engine import TRADING_DAYS, _series_metrics, _validate_var_level
 
 
 #______________________________________________________________________________
@@ -82,18 +82,7 @@ def _combination_metrics(
 
     # Equal weights deliberately isolate asset grouping from weight optimisation.
     portfolio_returns = aligned.mean(axis=1)
-    mean_daily = float(portfolio_returns.mean())
-    annual_return = mean_daily * TRADING_DAYS
-    annual_volatility = float(portfolio_returns.std(ddof=1)) * np.sqrt(TRADING_DAYS)
-
-    cutoff = float(portfolio_returns.quantile(1.0 - var_level))
-    var_pct = max(0.0, -cutoff)
-    tail = portfolio_returns[portfolio_returns <= cutoff]
-    es_pct = max(0.0, -float(tail.mean())) if not tail.empty else None
-
-    wealth = (1.0 + portfolio_returns).cumprod()
-    drawdown = wealth / wealth.cummax() - 1.0
-    max_drawdown = float(drawdown.min())
+    metrics = _series_metrics(portfolio_returns, var_level=var_level)
 
     return {
         "combination": list(tickers),
@@ -102,11 +91,7 @@ def _combination_metrics(
         "weighting": "equal_weight",
         "weight_each": 1.0 / len(tickers),
         "observations": int(len(aligned)),
-        "annual_return": float(annual_return),
-        "annual_volatility": float(annual_volatility),
-        "max_drawdown": max_drawdown,
-        "var_pct": float(var_pct),
-        "expected_shortfall_pct": float(es_pct) if es_pct is not None and np.isfinite(es_pct) else None,
+        **metrics,
     }
 
 
@@ -144,6 +129,7 @@ def calculate_combination_risk(
     narrows the analyst's requested universe; it never mutates Portfolio State.
     """
     clean = _clean_returns(returns)
+    _validate_var_level(var_level)
     portfolio = [str(t or "").strip().upper() for t in portfolio_tickers if str(t or "").strip()]
     eligible, excluded = eligible_tickers(clean, portfolio)
 
@@ -191,6 +177,8 @@ def calculate_combination_risk(
         }
 
     rows: list[dict[str, Any]] = []
+    # Rank every requested group on exactly the same dates.
+    clean = clean[universe].dropna(how="any")
     skipped_common_history = 0
     for group in combinations(universe, size):
         row = _combination_metrics(clean, group, var_level=float(var_level))
@@ -208,6 +196,9 @@ def calculate_combination_risk(
             "It isolates which securities historically worked together from the separate question of optimal weights."
         ),
         "var_level": float(var_level),
+        "common_history_start": clean.index.min().isoformat() if not clean.empty else None,
+        "common_history_end": clean.index.max().isoformat() if not clean.empty else None,
+        "common_observations": len(clean),
         "combination_size": size,
         "portfolio_tickers": portfolio,
         "eligible_tickers": eligible,

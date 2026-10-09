@@ -46,6 +46,10 @@ Rules:
 - Explain in plain English first, then state the relevant limitation or assumption.
 - Do not present a portfolio as universally "safe" or "unsafe" from one metric.
 - For VaR/Expected Shortfall, state the horizon and historical/model nature when available.
+- annual_return is an arithmetic annualised mean, not CAGR; geometric_annual_return is separate.
+- Current-weight historical performance implies daily rebalancing. Dated holdings history is a price-only reconstruction, not a complete realised account record.
+- Respect coverage flags: never present unavailable full-portfolio risk as zero or as validated.
+- Attribution contributions reconcile to attribution_return_pct, not necessarily the full requested period_return_pct; include cash_and_other_contribution_pct_points when relevant.
 - For scenarios, distinguish a modelled hypothetical result from a forecast.
 - Do not provide personalised buy/sell instructions.
 - If a requested value is unavailable, say it is unavailable and why.

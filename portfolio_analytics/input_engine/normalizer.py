@@ -357,6 +357,8 @@ def normalise_ledger(
             issues.append({"row": source_row, "field": "Quantity", "issue": "Quantity must be positive", "severity": "error"})
         if pd.isna(row["Price"]) or float(row["Price"]) <= 0:
             issues.append({"row": source_row, "field": "Price", "issue": "Price or Gross Value is required", "severity": "error"})
+    for idx in source.index[~(trade_mask | cash_mask)]:
+        issues.append({"row": str(idx), "field": "Type", "issue": f"Unsupported ledger event: {event_type.loc[idx]}", "severity": "error"})
 
     for idx, row in cashflows.iterrows():
         source_row = int(idx) + 2 if isinstance(idx, (int, np.integer)) else str(idx)

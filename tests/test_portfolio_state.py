@@ -91,12 +91,12 @@ def test_holdings_explicit_cash_is_cash_not_market_exposure():
         {"Ticker": "CASH", "Quantity": 18500, "Current Price": 1.0, "Asset Class": "Cash", "Currency": "GBP"},
     ])
     parsed = parse_dataframe(frame)
-    state = build_portfolio_state(parsed, latest_prices={"AAPL": 100.0, "CASH": 73.5})
+    state = build_portfolio_state(parsed, latest_prices={"AAPL": 100.0, "CASH": 73.5}, latest_fx={"GBP": 1.25})
 
-    assert state["cash"]["current"] == 18500.0
-    assert state["cash"]["explicit_snapshot_cash"] == 18500.0
-    assert state["totals"]["cash"] == 18500.0
+    assert state["cash"]["current"] == 23125.0
+    assert state["cash"]["explicit_snapshot_cash"] == 23125.0
+    assert state["totals"]["cash"] == 23125.0
     assert state["totals"]["gross_exposure"] == 200.0
     assert state["totals"]["net_exposure"] == 200.0
-    assert state["totals"]["equity"] == 18700.0
+    assert state["totals"]["equity"] == 23325.0
     assert all(row["ticker"] != "CASH" for row in state["positions"])

@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from portfolio_analytics.core.fx import fx_rate
+
 
 #______________________________________________________________________________
 # POSITION ACCOUNTING
@@ -90,6 +92,7 @@ def _apply_signed_trade(position: _Position, signed_quantity: float, price: floa
 def _positions_from_holdings(records: list[dict[str, Any]]) -> dict[str, _Position]:
     states: dict[str, _Position] = {}
 
+    unknown_basis: set[str] = set()
     for row in records:
         ticker = str(row.get("Ticker") or "").strip().upper()
         quantity = _optional_float(row.get("Quantity"))
@@ -97,12 +100,16 @@ def _positions_from_holdings(records: list[dict[str, Any]]) -> dict[str, _Positi
             continue
 
         entry = _optional_float(row.get("Average Entry Price"))
+        if entry is None or entry <= 0:
+            unknown_basis.add(ticker)
         current = states.setdefault(ticker, _Position())
 
         # Holdings snapshots can contain duplicate rows. Aggregate quantity and
         # derive a weighted entry price only from rows with known cost basis.
         old_q = current.quantity
         new_q = old_q + quantity
+        if old_q * quantity < 0:
+            raise ValueError(f"Mixed long/short snapshot lots for {ticker} are ambiguous; supply a transaction ledger.")
 
         if entry is not None and entry > 0:
             if abs(old_q) < 1e-15 or old_q * quantity > 0:
@@ -128,6 +135,8 @@ def _positions_from_holdings(records: list[dict[str, Any]]) -> dict[str, _Positi
             else current.rate_sensitivity
         )
 
+    for ticker in unknown_basis:
+        states[ticker].average_entry_price = 0.0
     return {ticker: state for ticker, state in states.items() if abs(state.quantity) > 1e-15}
 
 
@@ -209,6 +218,7 @@ def _positions_from_ledger(
     trade_records: list[dict[str, Any]],
     cashflow_records: list[dict[str, Any]],
     starting_cash: float,
+    *, split_history: pd.DataFrame | None = None,
 ) -> tuple[dict[str, _Position], float, list[dict[str, Any]], float]:
     events: list[dict[str, Any]] = []
 
@@ -224,7 +234,12 @@ def _positions_from_ledger(
             continue
         events.append({"kind": "cashflow", "date": date, "row": row})
 
-    events.sort(key=lambda event: event["date"])
+    if split_history is not None and not split_history.empty:
+        for date, row in split_history.iterrows():
+            for ticker, ratio in row.items():
+                if pd.notna(ratio) and float(ratio) not in (0.0, 1.0):
+                    events.append({"kind": "split", "date": pd.Timestamp(date), "row": {"Ticker": ticker, "Ratio": float(ratio)}})
+    events.sort(key=lambda event: (event["date"], event["kind"] != "split"))
 
     positions: dict[str, _Position] = {}
     cash = float(starting_cash)
@@ -234,6 +249,12 @@ def _positions_from_ledger(
     for event in events:
         row = event["row"]
         cash_before = cash
+        if event["kind"] == "split":
+            position = positions.get(str(row["Ticker"]).upper())
+            if position is not None:
+                position.quantity *= row["Ratio"]
+                position.average_entry_price /= row["Ratio"]
+            continue
 
         if event["kind"] == "cashflow":
             event_type = str(row.get("Type") or "").upper()
@@ -345,10 +366,54 @@ def build_portfolio_state(
     *,
     latest_prices: dict[str, float] | None = None,
     market_metadata: dict[str, Any] | None = None,
+    fx_history: pd.DataFrame | None = None,
+    latest_fx: dict[str, float] | None = None,
+    base_currency: str = "USD",
+    split_history: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Build the one canonical state dictionary used by every downstream engine."""
+    errors = [issue for issue in parsed.get("issues", []) if issue.get("severity") == "error"]
+    if errors:
+        raise ValueError("Portfolio input contains invalid rows; correct them before analysis: " + "; ".join(str(issue.get("issue")) for issue in errors))
     classification = parsed.get("classification")
-    normalised = parsed.get("normalised_dataset", {})
+    original = deepcopy(parsed.get("normalised_dataset", {}))
+    normalised = deepcopy(original)
+    base_currency = base_currency.upper()
+    currency_map: dict[str, str] = {}
+    for row in original.get("holdings", []) + original.get("ledger", []):
+        ticker = str(row.get("Ticker") or "").upper()
+        currency = str(row.get("Currency") or base_currency).upper()
+        if ticker != "CASH" and ticker in currency_map and currency_map[ticker] != currency:
+            raise ValueError(f"Conflicting quote currencies for {ticker}; use one quote currency per security.")
+        currency_map[ticker] = currency
+    warnings: list[str] = []
+    for row in normalised.get("holdings", []):
+        ccy = str(row.get("Currency") or base_currency)
+        current_rate = fx_rate(ccy, history=fx_history, latest=latest_fx, base=base_currency)
+        for key in ("Current Price",):
+            if _optional_float(row.get(key)) is not None:
+                row[key] = float(row[key]) * current_rate
+        if _optional_float(row.get("Average Entry Price")) is not None:
+            date = pd.to_datetime(row.get("Purchase Date"), errors="coerce")
+            rate = fx_rate(ccy, date=date if pd.notna(date) else None, history=fx_history, latest=latest_fx, base=base_currency)
+            row["Average Entry Price"] = float(row["Average Entry Price"]) * rate
+            if pd.isna(date) and ccy.upper() != base_currency:
+                warnings.append(f"{row['Ticker']}: undated foreign cost basis translated at current FX; P&L is approximate.")
+        row["Currency"] = base_currency
+    for row in normalised.get("ledger", []) + normalised.get("cashflows", []):
+        rate = fx_rate(row.get("Currency", base_currency), date=row.get("Date"), history=fx_history, latest=latest_fx, base=base_currency)
+        for key in ("Price", "Fees", "Gross Value", "Amount"):
+            if _optional_float(row.get(key)) is not None:
+                row[key] = float(row[key]) * rate
+        row["Currency"] = base_currency
+    supplied_prices = dict(parsed.get("variables", {}).get("provided_prices", {}))
+    supplied_prices.update(latest_prices or {})
+    local_prices = {str(k).upper(): float(v) for k, v in supplied_prices.items()}
+    base_prices = {ticker: price * fx_rate(currency_map.get(ticker, base_currency), history=fx_history, latest=latest_fx, base=base_currency)
+                   for ticker, price in local_prices.items() if ticker != "CASH"}
+    converted_parsed = deepcopy(parsed)
+    converted_parsed["variables"]["provided_prices"] = base_prices
+
     starting_cash = float(parsed.get("inputs", {}).get("starting_cash", 0.0) or 0.0)
 
     if classification == "holdings":
@@ -377,6 +442,7 @@ def build_portfolio_state(
             normalised.get("ledger", []),
             normalised.get("cashflows", []),
             starting_cash,
+            split_history=split_history,
         )
     else:
         raise ValueError(f"Unsupported parsed portfolio classification: {classification}")
@@ -392,7 +458,31 @@ def build_portfolio_state(
     else:
         accounting_history = _accounting_history_from_holdings(normalised.get("holdings", []))
 
-    prices, missing_prices, price_sources = _resolve_prices(parsed, positions, latest_prices)
+    # Event cash remains in its original currency until explicitly exchanged.
+    balances: dict[str, float] = {base_currency: starting_cash}
+    if classification == "ledger":
+        for row in original.get("ledger", []):
+            ccy = str(row.get("Currency") or base_currency).upper()
+            balances[ccy] = balances.get(ccy, 0.0) - float(row["Signed Quantity"]) * float(row["Price"]) - abs(float(row.get("Fees") or 0.0))
+        for row in original.get("cashflows", []):
+            ccy = str(row.get("Currency") or base_currency).upper()
+            sign = -1 if row["Type"] == "WITHDRAWAL" else 1
+            balances[ccy] = balances.get(ccy, 0.0) + sign * abs(float(row["Amount"]))
+        cash = sum(value * fx_rate(ccy, history=fx_history, latest=latest_fx, base=base_currency) for ccy, value in balances.items() if abs(value) > 1e-12)
+    else:
+        for row in original.get("holdings", []):
+            if str(row.get("Ticker") or "").upper() == "CASH" or str(row.get("Asset Class") or "").lower() == "cash":
+                ccy = str(row.get("Currency") or base_currency).upper()
+                balances[ccy] = balances.get(ccy, 0.0) + float(row["Quantity"]) * float(row.get("Current Price") or 1.0)
+    # Preserve local executions for historical replay; state prices/basis are base currency.
+    if classification == "ledger":
+        accounting_history["trades"] = deepcopy(original.get("ledger", []))
+        accounting_history["cashflows"] = deepcopy(original.get("cashflows", []))
+    else:
+        accounting_history = _accounting_history_from_holdings(original.get("holdings", []))
+    prices, missing_prices, price_sources = _resolve_prices(converted_parsed, positions, base_prices)
+    if missing_prices:
+        raise ValueError("Cannot value the complete portfolio; missing prices: " + ", ".join(missing_prices))
 
     rows: list[dict[str, Any]] = []
     total_realised = (
@@ -414,6 +504,9 @@ def build_portfolio_state(
             total_unrealised_values.append(float(unrealised))
         rows.append({
             "ticker": ticker,
+            "currency": currency_map.get(ticker, base_currency),
+            "price_currency": base_currency,
+            "local_current_price": local_prices.get(ticker),
             "asset_name": position.asset_name,
             "asset_class": position.asset_class,
             "quantity": quantity,
@@ -444,6 +537,9 @@ def build_portfolio_state(
 
     state = {
         "meta": {
+            "base_currency": base_currency,
+            "warnings": sorted(set(warnings)),
+            "pnl_basis": "gross of fees; executions translated at event FX",
             "source_kind": parsed.get("source", {}).get("kind"),
             "source_filename": parsed.get("source", {}).get("filename"),
             "path": classification,
@@ -456,10 +552,12 @@ def build_portfolio_state(
             "starting_cash": starting_cash,
             "latest_prices": prices,
             "user_dataset": deepcopy(parsed.get("user_dataset", {})),
-            "normalised_dataset": deepcopy(normalised),
+            "normalised_dataset": deepcopy(original),
         },
         "positions": rows,
         "cash": {
+            "balances": balances,
+            "valuation_fx": {ccy: fx_rate(ccy, history=fx_history, latest=latest_fx, base=base_currency) for ccy in balances},
             "starting": starting_cash,
             "current": float(cash),
             "explicit_snapshot_cash": float(explicit_cash) if classification == "holdings" else 0.0,
@@ -541,8 +639,6 @@ def refresh_state_totals(state: dict[str, Any]) -> dict[str, Any]:
         "gross_leverage": (long_exposure + short_exposure) / abs(equity) if abs(equity) > 1e-12 else None,
         "net_leverage": (long_exposure - short_exposure) / abs(equity) if abs(equity) > 1e-12 else None,
         "cost_basis": float(sum(float(row["cost_basis"]) for row in rows if row.get("cost_basis") is not None)) or None,
-        # Historical realised P&L is preserved across hypothetical scenario marks.
-        # Scenario trades are temporary and do not rewrite the accepted ledger.
         "realised_pnl": result.get("totals", {}).get("realised_pnl"),
         "unrealised_pnl": (
             float(sum(float(row["unrealised_pnl"]) for row in rows if row.get("unrealised_pnl") is not None))
