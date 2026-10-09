@@ -8,8 +8,8 @@ from portfolio_analytics.ui.duplicate_review import render_duplicate_review
 from portfolio_analytics.input_engine.review import review_view
 
 
-def render_ingestion() -> None:
-    st.caption("Upload → review exceptions → confirm decisions → accept later. Original records remain intact; financial acceptance awaits 2B-3. These files do not replace the accepted portfolio.")
+def render_ingestion(prepare=None, *, use_live_prices=True, history_period="3y", policy=None) -> None:
+    st.caption("Upload → review exceptions → confirm → consolidate → analyse. Original records remain intact. The accepted portfolio changes only after financial validation and explicit acceptance.")
     uploaded = st.file_uploader("Upload account files (CSV/XLSX)", type=["csv", "xlsx"], accept_multiple_files=True)
     st.caption("CSV and the first XLSX worksheet use the existing parser. Account IDs come from an explicit account/portfolio column; otherwise assign them below.")
     archived = st.session_state.get("rejected_consolidation_drafts", [])
@@ -43,7 +43,7 @@ def render_ingestion() -> None:
     st.markdown("**Staged import review**")
     st.caption(f"{summary['files']} files · {len(summary['accounts'])} identified accounts · {summary['holdings']} holdings · {summary['transactions']} transactions · {summary['cashflows']} cash flows · {summary['unresolved_assignments']} unresolved account assignments")
     st.caption(f"Import session: {batch['session_id']} · {batch['imported_at']}")
-    st.info("Review decisions are reversible. Financial reconciliation and Trust validation await 2B-3. Nothing is consolidated or accepted in this increment.")
+    st.info("Nothing is consolidated or accepted until you confirm review, validate financial reconciliation and Trust diagnostics, and explicitly accept. Review decisions are reversible.")
     rows, issues = [], []
     for item in batch["files"]:
         issues.extend({"File": item["filename"], **i} for i in item["issues"])
@@ -81,6 +81,9 @@ def render_ingestion() -> None:
                         st.caption(kind.title())
                         st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_provenance"} for r in records]), hide_index=True, use_container_width=True)
     render_duplicate_review(batch)
+    if prepare is not None:
+        from portfolio_analytics.ui.consolidation_acceptance import render_acceptance
+        render_acceptance(batch, prepare, use_live_prices=use_live_prices, history_period=history_period, policy=policy)
     if st.button("Reject staged import"):
         rejected = deepcopy(batch)
         rejected.setdefault("review_history", []).append({"event": "draft_rejection", "reason": "User rejected the entire staged draft.",

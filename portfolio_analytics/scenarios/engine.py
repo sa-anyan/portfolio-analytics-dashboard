@@ -111,7 +111,7 @@ def _trade_to_quantity(
             else:
                 realised_change = closing_quantity * (old_entry - price)
 
-        row["realised_pnl"] = float(row.get("realised_pnl") or 0.0) + realised_change
+        row["realised_pnl"] = (float(row["realised_pnl"]) + realised_change) if row.get("realised_pnl") is not None else None
         row["quantity"] = new_quantity
 
         if abs(new_quantity) < 1e-15:
@@ -124,8 +124,8 @@ def _trade_to_quantity(
             row["average_entry_price"] = price
 
     result["totals"]["realised_pnl"] = (
-        float(result.get("totals", {}).get("realised_pnl") or 0.0)
-        + realised_change
+        float(result["totals"]["realised_pnl"]) + realised_change
+        if result.get("totals", {}).get("realised_pnl") is not None else None
     )
     result = refresh_state_totals(result)
 

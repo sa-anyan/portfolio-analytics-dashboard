@@ -260,6 +260,59 @@ def cached_fx_history(currencies: tuple[str, ...], start_date: str):
     return fetch_fx_history(list(currencies), start=start_date, base="USD")
 
 
+def prepare_account_candidate(batch, declarations, overrides, live, period, policy):
+    from portfolio_analytics.input_engine.consolidate import prepare_consolidation, selected_inputs
+    view, selected = selected_inputs(batch)
+    preliminary = prepare_consolidation(batch, declarations=declarations, latest_prices=overrides, policy=policy)
+    if preliminary['parsed'] is None:
+        return preliminary
+    as_of = pd.Timestamp(declarations['valuation_date'])
+    if live and as_of.date() != pd.Timestamp.today().date():
+        preliminary.update(ready=False, errors=['Live quotes cannot validate a historical snapshot date. Use aligned current statements or explicitly supplied historical quotes.'])
+        return preliminary
+    normalised = preliminary['parsed']['normalised_dataset']
+    tickers = tuple(preliminary['parsed']['variables']['tickers'])
+    latest = dict(preliminary['parsed']['variables']['provided_prices'])
+    latest_meta = {'source': 'user supplied', 'as_of': None, 'missing': []}
+    fx, history = pd.DataFrame(), pd.DataFrame()
+    try:
+        if live and tickers:
+            market, latest_meta = cached_latest_prices(tickers)
+            latest.update(market)
+        currencies = tuple(sorted({str(r['data'].get('Currency') or 'USD').upper() for r in selected}))
+        dates = [pd.Timestamp(r['data']['Date']) for r in selected if r['data'].get('Date')]
+        history, history_meta = cached_price_history(tickers, period) if tickers else (pd.DataFrame(), {})
+        history = history.loc[history.index <= as_of] if not history.empty else history
+        starts = dates + ([history.index.min()] if not history.empty else []) + [as_of]
+        fx, fx_meta = cached_fx_history(currencies, (min(starts) - pd.Timedelta(days=7)).date().isoformat())
+        fx = fx.loc[fx.index <= as_of] if not fx.empty else fx
+        actual_history, actual_meta = pd.DataFrame(), {}
+        if normalised['ledger'] and not normalised['holdings']:
+            actual_history, actual_meta = cached_dated_price_history(tickers, min(dates).date().isoformat(), 'accounting')
+            if not actual_history.empty:
+                actual_history = actual_history.loc[actual_history.index <= as_of]
+        candidate = prepare_consolidation(batch, declarations=declarations, latest_prices=latest,
+            market_metadata=latest_meta, fx_history=fx, split_history=actual_history.attrs.get('splits'), policy=policy)
+        if candidate['ready']:
+            state = candidate['state']
+            analytics = run_analytics(state, history, fx_history=fx)
+            if state['accounting_history']['available']:
+                analytics['actual_performance'] = run_account_performance(state, actual_history, fx_history=fx)
+            else:
+                analytics['actual_performance'] = {'available': False, 'reason': state['accounting_history']['reason']}
+            analytics['trust_diagnostics'] = diagnose_trust(state, analytics, parsed=candidate['parsed'],
+                market_metadata=latest_meta, fx_history=fx, as_of=as_of, policy=policy)
+            candidate['trust'] = analytics['trust_diagnostics']
+            candidate['analytics'] = analytics
+            candidate['market_metadata'] = {'latest': latest_meta, 'history': {**history_meta, 'actual_performance': actual_meta, 'fx': fx_meta}}
+        return candidate
+    except Exception as exc:
+        preliminary.update(ready=False, errors=[str(exc)])
+        preliminary['trust'] = diagnose_trust(None, parsed=preliminary['parsed'], latest_prices=latest,
+            market_metadata=latest_meta, fx_history=fx, policy=policy, as_of=as_of, failure=str(exc))
+        return preliminary
+
+
 #______________________________________________________________________________
 # MAIN + COPILOT LAYOUT
 #______________________________________________________________________________
@@ -430,7 +483,7 @@ with main_col:
                     use_container_width=True,
                 )
         elif source_type == "Multiple account files":
-            render_ingestion()
+            render_ingestion(prepare_account_candidate, use_live_prices=use_live_prices, history_period=history_period, policy=trust_policy)
         else:
             st.caption("Enter holdings directly. Positive quantity = long; negative quantity = short. Entry price and current price are optional when live valuation is enabled.")
             if "Currency" not in st.session_state.manual_rows:
@@ -590,9 +643,10 @@ with main_col:
 
             with st.expander("Normalised input used by the engine"):
                 normalised = parsed.get("normalised_dataset", {})
-                if parsed.get("classification") == "holdings":
+                if parsed.get("classification") in {"holdings", "consolidated"} and normalised.get("holdings"):
+                    st.markdown("**Holdings snapshots**")
                     st.dataframe(pd.DataFrame(normalised.get("holdings", [])), use_container_width=True, hide_index=True)
-                else:
+                if parsed.get("classification") != "holdings":
                     st.markdown("**Trades**")
                     st.dataframe(pd.DataFrame(normalised.get("ledger", [])), use_container_width=True, hide_index=True)
                     if normalised.get("cashflows"):
