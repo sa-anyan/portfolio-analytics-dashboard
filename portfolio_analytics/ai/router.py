@@ -32,6 +32,7 @@ ALLOWED_INTENTS = {
 }
 
 ALLOWED_LOOKUP_FIELDS = {
+    "lookthrough",
     "quantity",
     "side",
     "current_price",
@@ -139,6 +140,7 @@ Routing rules:
 - Convert an explicit month/year to that calendar month.
 - If no period is specified, leave start_date and end_date null so Python uses the available reconstructed history.
 - "caused" in a historical portfolio question means portfolio return attribution by holding. Do not claim external economic/news causation.
+- For underlying/company exposure, ETF overlap or direct-plus-indirect ownership questions, use explain or lookup with field lookthrough, scope accepted. Use only supplied lookthrough evidence; do not require the underlying to be directly held.
 - Never give personalised buy/sell recommendations.
 
 Lookup fields should use these canonical names when possible:
@@ -147,7 +149,7 @@ cost_basis, realised_pnl, unrealised_pnl, cash, equity, long_exposure,
 short_exposure, gross_exposure, net_exposure, gross_leverage, net_leverage,
 annual_return (arithmetic annualised mean), geometric_annual_return, annual_volatility, sharpe, var_pct, var_value,
 expected_shortfall_pct, expected_shortfall_value, max_drawdown,
-risk_contribution, correlation, performance, combination_risk,
+risk_contribution, correlation, performance, lookthrough, combination_risk,
 lowest_volatility_combination, smallest_drawdown_combination, lowest_var_combination,
 lowest_expected_shortfall_combination, highest_tail_risk_combination.
 
@@ -339,6 +341,11 @@ def validate_route(
         for row in selected_state.get("positions", [])
         if str(row.get("ticker") or "").strip()
     }
+
+    if route['scope'] == 'accepted' and 'lookthrough' in route['fields'] and intent in {'lookup', 'explain'}:
+        underlying_tickers = {t for row in context.get('analytics', {}).get('lookthrough', {}).get('securities', [])
+                              for t in row.get('identifiers', {}).get('ticker', [])}
+        selected_tickers |= underlying_tickers
 
     if intent in {"lookup", "explain"} and route.get("ticker"):
         if route["ticker"] not in selected_tickers:

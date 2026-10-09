@@ -324,6 +324,16 @@ if st.session_state.analytics is not None:
         st.session_state.portfolio_state, st.session_state.analytics, parsed=st.session_state.parsed,
         market_metadata=(st.session_state.market_metadata or {}).get("latest", {}),
         fx_snapshot=previous_trust.get("fx_snapshot", {}), policy=trust_policy)
+if st.session_state.analytics is not None:
+    from portfolio_analytics.analytics.lookthrough import calculate_lookthrough
+    from portfolio_analytics.input_engine.constituents import identity_catalog
+    exposure_catalog = identity_catalog(st.session_state.portfolio_state, parsed=st.session_state.parsed,
+        accepted_batch=st.session_state.get('accepted_consolidation_batch'))
+    st.session_state.analytics['lookthrough'] = calculate_lookthrough(st.session_state.portfolio_state,
+        st.session_state.get('fund_constituents', {}), exposure_catalog,
+        declarations=st.session_state.get('fund_eligibility', {}),
+        trust=st.session_state.analytics['trust_diagnostics'],
+        max_age_days=st.session_state.get('constituent_max_age', 90))
 valuation_ok = st.session_state.analytics is None or st.session_state.analytics.get("trust_diagnostics", {}).get("valuation_status") != "blocked"
 workspace = st.radio("Workspace", ["Portfolio dashboard", "Deep Analytics"], horizontal=True, key="workspace", label_visibility="collapsed")
 main_col, copilot_col = st.columns([3.25, 1.15], gap="large")

@@ -64,15 +64,15 @@ def test_daniel_two_etf_inputs_dates_coverage_and_canonical_navigation(monkeypat
         assert Decimal(nvda['weight'])==Decimal('.065' if parent=='VOO' else '.20')
         assert nvda['parent']==parent
     assert len(app.session_state['fund_constituents'])==2
-    assert any('not zero' in i.value and 'Phase 3B' in i.value for i in app.info)
+    assert any('Unknown is not zero' in i.value for i in app.warning)
     next(r for r in app.radio if r.label=='Deep Analytics view').set_value('Discover').run()
     assert not app.exception
     button(app,'Prepare a Copilot question').click().run()
     button(app,'Run hypothetical shock').click().run()
     workspace(app,'Portfolio dashboard')
     assert app.session_state['portfolio_state']==state
-    current=deepcopy(app.session_state['analytics']); current.pop('trust_diagnostics')
-    analytics.pop('trust_diagnostics')
+    current=deepcopy(app.session_state['analytics']); current.pop('trust_diagnostics'); current.pop('lookthrough', None)
+    analytics.pop('trust_diagnostics'); analytics.pop('lookthrough', None)
     assert current==analytics and calls==fetched and app.session_state['copilot_uses']==0
     exposure(app)
     assert set(app.session_state['fund_constituents'])=={'VOO','VGT'} and calls==fetched
