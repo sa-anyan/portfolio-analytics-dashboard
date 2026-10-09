@@ -488,7 +488,7 @@ def build_portfolio_state(
     total_realised = (
         float(sum(float(row.get("realised_pnl") or 0.0) for row in accounting_log))
         if classification == "ledger"
-        else 0.0
+        else None  # A holdings snapshot cannot establish disposed-position history.
     )
     total_unrealised_values: list[float] = []
 
@@ -517,7 +517,7 @@ def build_portfolio_state(
             "signed_market_value": signed_value,
             "exposure": exposure,
             "cost_basis": cost_basis,
-            "realised_pnl": float(position.realised_pnl),
+            "realised_pnl": float(position.realised_pnl) if classification == "ledger" else None,
             "unrealised_pnl": unrealised,
             "duration": position.duration,
             "rate_sensitivity": position.rate_sensitivity,

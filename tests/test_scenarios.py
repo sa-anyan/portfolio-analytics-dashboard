@@ -127,9 +127,9 @@ def test_resize_long_partial_close_updates_realised_pnl_and_preserves_equity():
     assert resized["cash"]["current"] == pytest.approx(1600.0)
     assert row["quantity"] == pytest.approx(5.0)
     assert row["average_entry_price"] == pytest.approx(100.0)
-    assert row["realised_pnl"] == pytest.approx(100.0)
+    assert row["realised_pnl"] is None  # Snapshot history remains unknown; incremental trade P&L is below.
     assert row["unrealised_pnl"] == pytest.approx(100.0)
-    assert resized["totals"]["realised_pnl"] == pytest.approx(100.0)
+    assert resized["totals"]["realised_pnl"] is None
     assert detail["realised_pnl_change"] == pytest.approx(100.0)
 
 
@@ -151,9 +151,9 @@ def test_resize_short_partial_cover_updates_realised_pnl_and_preserves_equity():
     assert resized["cash"]["current"] == pytest.approx(920.0)
     assert row["quantity"] == pytest.approx(-1.0)
     assert row["average_entry_price"] == pytest.approx(100.0)
-    assert row["realised_pnl"] == pytest.approx(20.0)
+    assert row["realised_pnl"] is None
     assert row["unrealised_pnl"] == pytest.approx(20.0)
-    assert resized["totals"]["realised_pnl"] == pytest.approx(20.0)
+    assert resized["totals"]["realised_pnl"] is None
     assert detail["realised_pnl_change"] == pytest.approx(20.0)
 
 
@@ -190,7 +190,8 @@ def test_resize_reversal_realises_old_side_and_resets_basis_to_scenario_mark():
 
     assert row["quantity"] == pytest.approx(-5.0)
     assert row["average_entry_price"] == pytest.approx(120.0)
-    assert row["realised_pnl"] == pytest.approx(200.0)
+    assert row["realised_pnl"] is None
+    assert detail["realised_pnl_change"] == pytest.approx(200.0)
     assert row["unrealised_pnl"] == pytest.approx(0.0)
     assert detail["signed_trade_quantity"] == pytest.approx(-15.0)
 
