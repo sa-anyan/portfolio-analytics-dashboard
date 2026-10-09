@@ -93,15 +93,17 @@ def fetch_latest_prices(tickers: list[str]) -> tuple[dict[str, float], dict[str,
         group_by="column",
         threads=True,
     )
-    close = _extract_close(downloaded, ordered, prefer_adjusted=False).ffill()
+    close = _extract_close(downloaded, ordered, prefer_adjusted=False)
 
     latest: dict[str, float] = {}
+    observations: dict[str, dict[str, Any]] = {}
     if not close.empty:
         for ticker in ordered:
             if ticker in close.columns:
                 series = pd.to_numeric(close[ticker], errors="coerce").dropna()
                 if not series.empty:
                     latest[ticker] = float(series.iloc[-1])
+                    observations[ticker] = {"as_of": series.index[-1].isoformat(), "source": "Yahoo Finance"}
 
     missing = [ticker for ticker in ordered if ticker not in latest]
     as_of = close.index.max() if not close.empty else None
@@ -110,6 +112,7 @@ def fetch_latest_prices(tickers: list[str]) -> tuple[dict[str, float], dict[str,
         "source": "Yahoo Finance",
         "as_of": as_of.isoformat() if as_of is not None else None,
         "missing": missing,
+        "observations": observations,
     }
 
 

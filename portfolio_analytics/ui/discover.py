@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from portfolio_analytics.scenarios.engine import run_scenario
+from portfolio_analytics.ui.trust import render_trust
 
 
 def navigate_to_dashboard(section: str = "overview") -> None:
@@ -66,6 +67,12 @@ def _finding(finding: dict, deep: dict) -> None:
 def render_discover(state: dict | None, analytics: dict | None) -> None:
     st.subheader("Deep Analytics")
     st.caption("Discover · What matters, why it matters, and where to investigate next.")
+    if analytics and analytics.get("trust_diagnostics"):
+        render_trust(analytics["trust_diagnostics"])
+        if analytics["trust_diagnostics"].get("valuation_status") == "blocked":
+            st.info("Refresh the affected inputs on the portfolio dashboard before interpreting findings or modelling scenarios.")
+            st.button("Return to portfolio dashboard", on_click=navigate_to_dashboard)
+            return
     if state is None or analytics is None:
         st.info("Analyse a portfolio on the portfolio dashboard first. Discover will use that same portfolio; no second upload is needed.")
         st.button("Build your portfolio", on_click=navigate_to_dashboard, use_container_width=True)
@@ -79,7 +86,10 @@ def render_discover(state: dict | None, analytics: dict | None) -> None:
     if not state.get("positions"):
         st.info("This portfolio has no open security positions. Security concentration is undefined; any retained cash remains in the accepted account.")
     st.caption("ETF look-through is unavailable. Indirect company exposure is unknown, not zero; these findings describe direct securities only.")
-    shown, remaining = visible_findings(deep.get("findings", []))
+    findings = deep.get("findings", [])
+    if analytics.get("trust_diagnostics", {}).get("risk_status") == "unavailable":
+        findings = [f for f in findings if f.get("id") not in {"risk_driver", "capital_vs_risk"}]
+    shown, remaining = visible_findings(findings)
     if not shown:
         st.info("No supported findings are available. Review portfolio coverage and methodology.")
     for finding in shown:
@@ -99,6 +109,7 @@ def render_discover(state: dict | None, analytics: dict | None) -> None:
         st.caption(analytics.get("meta", {}).get("risk_method", "Risk methodology unavailable."))
     with st.expander("Explore an existing price-shock scenario"):
         st.caption("Hypothetical current-mark shock. It uses the existing scenario engine and never changes accepted holdings. Funding and trading costs follow that engine's documented assumptions.")
+        st.caption("Scenario risk retains the source portfolio's historical sample and data-quality limitations.")
         tickers = [row["ticker"] for row in state.get("positions", []) if row.get("current_price") is not None]
         risk_rows = deep.get("risk_interpretation", {}).get("ranked_contributors", [])
         preferred = risk_rows[0]["ticker"] if risk_rows else None
