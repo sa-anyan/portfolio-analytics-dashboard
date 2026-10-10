@@ -23,11 +23,12 @@ def _pct(value: Any) -> str:
         return "unavailable"
 
 
-def _money(value: Any) -> str:
+def _money(value: Any, base: str = "USD") -> str:
     try:
         if not finite(value):
             return "unavailable"
-        return f"${float(value):,.2f}"
+        symbol = {"USD": "$", "GBP": "£", "EUR": "€"}.get(base, base + " ")
+        return f"{symbol}{float(value):,.2f}"
     except (TypeError, ValueError):
         return "unavailable"
 
@@ -37,6 +38,7 @@ def _money(value: Any) -> str:
 #______________________________________________________________________________
 
 def fallback_insights(state: dict[str, Any], analytics: dict[str, Any]) -> dict[str, str]:
+    money = lambda value: _money(value, state.get("meta", {}).get("base_currency", "USD"))
     risk = risk_values_for_display(analytics)
     exposure = analytics.get("exposure", {})
     performance = analytics.get("performance", {})
@@ -60,7 +62,7 @@ def fallback_insights(state: dict[str, Any], analytics: dict[str, Any]) -> dict[
 
     return {
         "exposure": (
-            f"Gross exposure is {_money(exposure.get('gross'))} and net exposure is {_money(exposure.get('net'))}. "
+            f"Gross exposure is {money(exposure.get('gross'))} and net exposure is {money(exposure.get('net'))}. "
             "Gross measures total market exposure; net reflects long exposure minus short exposure."
         ),
         "holdings": holdings_text,
@@ -70,7 +72,7 @@ def fallback_insights(state: dict[str, Any], analytics: dict[str, Any]) -> dict[
             "This describes how widely the current signed book moved historically; it is not a forecast."
         ),
         "var": (
-            f"Historical VaR is {_money(risk.get('var_value'))} ({_pct(risk.get('var_pct'))}) at the selected confidence level. "
+            f"Historical VaR is {money(risk.get('var_value'))} ({_pct(risk.get('var_pct'))}) at the selected confidence level. "
             "It is a loss threshold from historical daily returns, not a maximum possible loss or a universal safe/unsafe test."
         ),
         "drawdown": (
@@ -81,7 +83,7 @@ def fallback_insights(state: dict[str, Any], analytics: dict[str, Any]) -> dict[
             "Correlation shows which holdings tended to move together historically. Values near +1 moved together, near -1 moved oppositely, and near 0 had little linear relationship."
         ),
         "pnl": (
-            f"Realised P&L is {_money(pnl.get('realised'))} and unrealised P&L is {_money(pnl.get('unrealised'))}. "
+            f"Realised P&L is {money(pnl.get('realised'))} and unrealised P&L is {money(pnl.get('unrealised'))}. "
             "Unrealised P&L is only available where a usable cost basis exists."
         ),
     }
