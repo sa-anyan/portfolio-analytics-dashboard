@@ -8,7 +8,7 @@ import streamlit as st
 from portfolio_analytics.input_engine.consolidate import selected_inputs
 from portfolio_analytics.input_engine.review import review_view, _hash
 from portfolio_analytics.ui.trust import render_trust
-from portfolio_analytics.ui.insights import fallback_insights
+from portfolio_analytics.ui.accepted_state import replace_accepted
 
 
 def accept_candidate(session, batch, candidate, request_key):
@@ -16,18 +16,13 @@ def accept_candidate(session, batch, candidate, request_key):
     if not view['review_confirmed'] or not candidate.get('ready') or candidate['review_digest'] != view['digest'] or candidate.get('request_key') != request_key:
         raise ValueError('Consolidation is stale, unconfirmed or failed validation. Reconfirm and consolidate before acceptance.')
     # All work is complete before replacing the canonical accepted state.
-    updates = {'parsed': deepcopy(candidate['parsed']), 'portfolio_state': deepcopy(candidate['state']),
-               'analytics': deepcopy(candidate['analytics']), 'market_metadata': deepcopy(candidate['market_metadata']),
-               'latest_scenario': None, 'trust_attempt': None, 'copilot_messages': [],
-               'copilot_insights': fallback_insights(candidate['state'], candidate['analytics'])}
     accepted = deepcopy(batch)
     accepted['canonical_acceptance'] = 'accepted'
     accepted.setdefault('review_history', []).append({'event': 'financial_acceptance', 'review_digest': view['digest'],
         'retained_record_ids': view['retained_record_ids'], 'excluded_record_ids': view['excluded_record_ids'],
         'reason': 'User accepted the financially validated canonical consolidation.', 'reconciliation': candidate['reconciliation']})
-    updates['accepted_consolidation_batch'] = accepted
-    for key, value in updates.items():
-        session[key] = value
+    replace_accepted(session, candidate['parsed'], candidate['state'], candidate['analytics'],
+                     candidate['market_metadata'], batch=accepted)
 
 
 def render_acceptance(batch, prepare, *, use_live_prices, history_period, policy):

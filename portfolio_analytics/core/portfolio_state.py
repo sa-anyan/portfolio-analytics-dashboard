@@ -393,7 +393,12 @@ def build_portfolio_state(
         for key in ("Current Price",):
             if _optional_float(row.get(key)) is not None:
                 row[key] = float(row[key]) * current_rate
-        if _optional_float(row.get("Average Entry Price")) is not None:
+        reported_basis = _optional_float(row.get("Reported Cost Basis"))
+        if reported_basis is not None:
+            if classification != "holdings" or row.get("Reported Cost Currency") != base_currency or reported_basis <= 0:
+                raise ValueError("Reported snapshot cost basis must be positive and in the reporting currency.")
+            row["Average Entry Price"] = reported_basis / abs(float(row["Quantity"]))
+        elif _optional_float(row.get("Average Entry Price")) is not None:
             date = pd.to_datetime(row.get("Purchase Date"), errors="coerce")
             rate = fx_rate(ccy, date=date if pd.notna(date) else None, history=fx_history, latest=latest_fx, base=base_currency)
             row["Average Entry Price"] = float(row["Average Entry Price"]) * rate
@@ -593,6 +598,9 @@ def build_portfolio_state(
         "totals": deepcopy(state["totals"]),
     }
 
+    if parsed.get("inputs", {}).get("snapshot_only"):
+        state["accounting_history"] = {"available": False, "reason": "Holdings statement establishes valuation only; purchase dates do not establish complete account performance."}
+        state["meta"]["pnl_basis"] = "Supplied reporting-currency snapshot cost basis; realised P&L unavailable"
     return state
 
 
