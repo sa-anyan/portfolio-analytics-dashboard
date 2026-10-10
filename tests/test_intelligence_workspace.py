@@ -16,11 +16,13 @@ def test_snapshot_ui_views_reuse_state_and_offline_history_cannot_blank_allocati
     file=SimpleNamespace(name=SAMPLE.name,getvalue=SAMPLE.read_bytes)
     monkeypatch.setattr(st,'file_uploader',lambda *a,**k:file)
     calls={'quotes':0,'history':0,'fx':0}
+    windows=[]
     def quotes(*a,**k):
         calls['quotes']+=1
         raise AssertionError('Source quotes must not be overwritten')
     def history(*a,**k):
         calls['history']+=1
+        windows.append(k)
         raise RuntimeError('offline')
     def currency(*a,**k):
         calls['fx']+=1
@@ -47,6 +49,7 @@ def test_snapshot_ui_views_reuse_state_and_offline_history_cannot_blank_allocati
         assert not app.exception, [e.message for e in app.exception]
         assert app.session_state['portfolio_state']==state
     assert calls['history']==1 and calls['fx']==1 and calls['quotes']==0
+    assert windows[0]['start']=='2023-10-09' and windows[0]['end']=='2026-10-10'
     assert next(b for b in app.button if b.label=='Ask Copilot').disabled
     # A changed file must not silently inherit the previous statement date.
     next(r for r in app.radio if r.label=='Workspace').set_value('Portfolio dashboard').run()

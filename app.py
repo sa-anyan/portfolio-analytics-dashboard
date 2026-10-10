@@ -272,6 +272,13 @@ def cached_latest_prices(tickers: tuple[str, ...]):
 def cached_price_history(tickers: tuple[str, ...], period: str):
     return fetch_price_history(list(tickers), period=period)
 
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
+def cached_snapshot_price_history(tickers: tuple[str, ...], period: str, valuation_date: str):
+    end = pd.Timestamp(valuation_date)
+    start = end - pd.DateOffset(years=int(period[:-1]))
+    return fetch_price_history(list(tickers), start=start.date().isoformat(), end=(end + pd.Timedelta(days=1)).date().isoformat())
+
+
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting"):
@@ -649,9 +656,12 @@ with main_col:
                         if use_sheet_history:
                             if history_upload is None:
                                 raise ValueError("Upload dated spreadsheet price history or uncheck the spreadsheet option.")
-                            history, history_meta = spreadsheet_price_history(history_upload.getvalue(), history_upload.name, market_tickers, history_period)
+                            history, history_meta = spreadsheet_price_history(history_upload.getvalue(), history_upload.name, market_tickers, history_period, as_of=snapshot_date if snapshot else None)
                         else:
-                            history, history_meta = cached_price_history(market_tickers, history_period)
+                            if snapshot:
+                                history, history_meta = cached_snapshot_price_history(market_tickers, history_period, snapshot_date.isoformat())
+                            else:
+                                history, history_meta = cached_price_history(market_tickers, history_period)
                     except Exception:
                         if use_sheet_history:
                             raise

@@ -16,7 +16,7 @@ def _save_policy() -> None:
 def render_trust(report: dict, *, rejected: bool = False, controls: bool = True, key_prefix: str = "") -> None:
     st.markdown("**Data Quality / Trust**" + (" · Rejected submission" if rejected else ""))
     status = report.get("valuation_status", "unknown")
-    summary = f"Reporting currency: {report.get('reporting_currency') or 'unknown'} · Valuation: {status} · Risk: {report.get('risk_status', 'unavailable')} · Actual performance: {report.get('actual_performance_status', 'unavailable')} · Checked on: {report.get('as_of')}"
+    summary = f"Reporting currency: {report.get('reporting_currency') or 'unknown'} · Valuation: {status} · Risk: {report.get('risk_status', 'unavailable')} · Actual performance: {report.get('actual_performance_status', 'unavailable')} · Valuation as of: {report.get('as_of')} · Checked on: {report.get('checked_on', report.get('as_of'))}"
     if status == "blocked":
         st.error("Affected portfolio totals are withheld. " + summary)
     else:

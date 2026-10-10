@@ -4,7 +4,7 @@ import pandas as pd
 from .parser import read_portfolio_file
 
 
-def spreadsheet_price_history(data, filename, tickers, period):
+def spreadsheet_price_history(data, filename, tickers, period, *, as_of=None):
     frame = read_portfolio_file(data, filename)
     if not {'Date', 'Ticker', 'Adjusted Close'}.issubset(frame.columns):
         raise ValueError('Price history requires Date, Ticker and Adjusted Close columns.')
@@ -20,7 +20,8 @@ def spreadsheet_price_history(data, filename, tickers, period):
     if frame.duplicated(['Date', 'Ticker']).any():
         raise ValueError('Duplicate date/security observations require correction.')
     history = frame.pivot(index='Date', columns='Ticker', values='Adjusted Close').sort_index()
-    history = history.loc[history.index >= today - pd.DateOffset(years=int(period[:-1]))]
+    anchor = pd.Timestamp(as_of).normalize() if as_of is not None else today
+    history = history.loc[(history.index >= anchor - pd.DateOffset(years=int(period[:-1]))) & (history.index <= anchor)]
     history = history.reindex(columns=list(tickers))
     history.attrs['price_basis'] = 'total_return'
     return history, {'source': 'User spreadsheet adjusted-price history', 'price_basis': 'total_return',

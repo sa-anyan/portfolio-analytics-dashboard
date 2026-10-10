@@ -27,6 +27,9 @@ def reported_snapshot(parsed, valuation_date):
     rates, residuals, quotes = {'GBP': 1.0}, [], {}
     for index, (source, row) in enumerate(zip(raw, holdings), 2):
         ticker, currency = row['Ticker'], row['Currency']
+        purchase = pd.to_datetime(source.get('Purchase Date'), dayfirst=True, errors='coerce')
+        if pd.notna(purchase) and purchase.normalize() > date:
+            raise ValueError(f'{ticker}: statement valuation date precedes its supplied purchase date. Use the date of the statement prices and FX, not the historical analysis start date.')
         def required(label):
             value = clean_number(source.get(label))
             if value is None or not math.isfinite(value):

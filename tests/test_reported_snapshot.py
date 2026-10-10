@@ -38,3 +38,35 @@ def test_invalid_source_evidence_rejected(column, value):
 def test_no_invented_valuation_date():
     with pytest.raises((ValueError, TypeError)):
         reported_snapshot(fixture(), None)
+
+
+def test_historical_reconciled_statement_is_diagnosed_at_declared_date():
+    from portfolio_analytics.diagnostics.trust import diagnose_trust
+    from portfolio_analytics.core.portfolio_state import build_portfolio_state
+    from portfolio_analytics.input_engine.parser import parse_upload
+    from pathlib import Path
+    raw=Path('examples/demo_portfolio_holdings.csv').read_bytes()
+    import pandas as pd
+    from io import BytesIO
+    historical=pd.read_csv(BytesIO(raw))
+    historical['Purchase Date']='01/01/2020'
+    parsed,fx=reported_snapshot(parse_upload(historical.to_csv(index=False).encode(),'sample.csv'),'2023-10-26')
+    state=build_portfolio_state(parsed,fx_history=fx,base_currency='GBP')
+    report=diagnose_trust(state,parsed=parsed,fx_history=fx)
+    assert report['as_of']=='2023-10-26'
+    assert report['valuation_status']!='blocked'
+    assert not any(i['code']=='fx_stale' for i in report['issues'])
+    assert any(i['code']=='historical_snapshot' for i in report['issues'])
+    # Ordinary current valuation still rejects historical FX evidence.
+    parsed['source'].pop('snapshot_validation')
+    current=diagnose_trust(state,parsed=parsed,fx_history=fx)
+    assert current['valuation_status']=='blocked'
+
+
+def test_statement_date_must_not_precede_supplied_purchases():
+    from pathlib import Path
+    from portfolio_analytics.input_engine.parser import parse_upload
+    import pytest
+    raw=Path('examples/demo_portfolio_holdings.csv').read_bytes()
+    with pytest.raises(ValueError,match='precedes its supplied purchase date'):
+        reported_snapshot(parse_upload(raw,'sample.csv'),'2023-10-26')
