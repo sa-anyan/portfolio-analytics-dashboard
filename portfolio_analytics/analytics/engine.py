@@ -32,6 +32,9 @@ def _validate_var_level(level: float) -> None:
 def _base_prices(state: dict[str, Any], prices: pd.DataFrame, fx_history: pd.DataFrame | None) -> pd.DataFrame:
     base = state.get("meta", {}).get("base_currency", "USD")
     result = prices.copy()
+    # Transport metadata may contain DataFrames (split events). Keep it on the
+    # source history, not arithmetic Series where pandas compares attrs on concat.
+    result.attrs = {}
     result.columns = [str(c).upper() for c in result.columns]
     result.index = pd.to_datetime(result.index).normalize()
     # One common business-day calendar, including crypto and international assets.

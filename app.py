@@ -27,8 +27,9 @@ from portfolio_analytics.security.demo_quota import remaining, authorised_demo_q
 from portfolio_analytics.security.session import synchronise_owner
 from portfolio_analytics.analytics.engine import run_analytics, run_account_performance, returns_from_analytics
 from portfolio_analytics.analytics.combination_risk import calculate_combination_risk
-from portfolio_analytics.core.market_data import fetch_latest_prices, fetch_price_history
+from portfolio_analytics.core.market_data import fetch_latest_prices
 from portfolio_analytics.input_engine.price_history import spreadsheet_price_history
+from portfolio_analytics.core.history_listings import fetch_listing_history, listing_rows
 from portfolio_analytics.core.fx import fetch_fx_history
 from portfolio_analytics.core.portfolio_state import build_portfolio_state
 from portfolio_analytics.input_engine.manual import parse_manual_holdings
@@ -46,11 +47,8 @@ from portfolio_analytics.ui.visuals import (
     correlation_heatmap,
     combination_risk_heatmap,
     combination_risk_ranked,
-    drawdown_figure,
     exposure_bar,
     holdings_donut,
-    performance_figure,
-    reconstructed_value_figure,
     risk_contribution_donut,
     scenario_comparison_bar,
     scenario_position_change_bar,
@@ -269,20 +267,20 @@ def cached_latest_prices(tickers: tuple[str, ...]):
 
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
-def cached_price_history(tickers: tuple[str, ...], period: str):
-    return fetch_price_history(list(tickers), period=period)
+def cached_price_history(tickers: tuple[str, ...], period: str, listings: tuple = ()):
+    return fetch_listing_history(list(tickers), period=period, listings=listings)
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
-def cached_snapshot_price_history(tickers: tuple[str, ...], period: str, valuation_date: str):
+def cached_snapshot_price_history(tickers: tuple[str, ...], period: str, valuation_date: str, listings: tuple = ()):
     end = pd.Timestamp(valuation_date)
     start = end - pd.DateOffset(years=int(period[:-1]))
-    return fetch_price_history(list(tickers), start=start.date().isoformat(), end=(end + pd.Timedelta(days=1)).date().isoformat())
+    return fetch_listing_history(list(tickers), start=start.date().isoformat(), end=(end + pd.Timedelta(days=1)).date().isoformat(), listings=listings)
 
 
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
-def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting"):
-    return fetch_price_history(list(tickers), start=start_date, price_basis=price_basis)
+def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting", listings: tuple = ()):
+    return fetch_listing_history(list(tickers), start=start_date, price_basis=price_basis, listings=listings)
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_fx_history(currencies: tuple[str, ...], start_date: str):
@@ -338,7 +336,7 @@ def prepare_account_candidate(batch, declarations, overrides, live, period, poli
                 market_metadata=latest_meta, fx_history=fx, as_of=as_of, policy=policy)
             candidate['trust'] = analytics['trust_diagnostics']
             candidate['analytics'] = analytics
-            candidate['market_metadata'] = {'latest': latest_meta, 'history': {**history_meta, 'actual_performance': actual_meta, 'fx': fx_meta}}
+            candidate['market_metadata'] = {'latest': latest_meta, 'history': {**history_meta, 'period': period, 'actual_performance': actual_meta, 'fx': fx_meta}}
         return candidate
     except Exception as exc:
         preliminary.update(ready=False, errors=[str(exc)])
@@ -659,9 +657,9 @@ with main_col:
                             history, history_meta = spreadsheet_price_history(history_upload.getvalue(), history_upload.name, market_tickers, history_period, as_of=snapshot_date if snapshot else None)
                         else:
                             if snapshot:
-                                history, history_meta = cached_snapshot_price_history(market_tickers, history_period, snapshot_date.isoformat())
+                                history, history_meta = cached_snapshot_price_history(market_tickers, history_period, snapshot_date.isoformat(), listing_rows(parsed.get("user_dataset",{}).get("records",[])))
                             else:
-                                history, history_meta = cached_price_history(market_tickers, history_period)
+                                history, history_meta = cached_price_history(market_tickers, history_period, listing_rows(parsed.get("user_dataset",{}).get("records",[])))
                     except Exception:
                         if use_sheet_history:
                             raise
@@ -691,7 +689,7 @@ with main_col:
                     if dated_values and not snapshot:
                         price_basis = "accounting" if parsed["classification"] == "ledger" else "split_adjusted_close"
                         try:
-                            actual_history, actual_meta = cached_dated_price_history(market_tickers, min(dated_values).date().isoformat(), price_basis)
+                            actual_history, actual_meta = cached_dated_price_history(market_tickers, min(dated_values).date().isoformat(), price_basis, listing_rows(parsed.get("user_dataset",{}).get("records",[])))
                         except Exception:
                             actual_history, actual_meta = pd.DataFrame(), {"source": "unavailable", "reason": "Dated price history unavailable"}
                     state = build_portfolio_state(
@@ -711,7 +709,7 @@ with main_col:
                         analytics["actual_performance"] = run_account_performance(state, actual_history, fx_history=fx_history)
                     analytics["trust_diagnostics"] = diagnose_trust(state, analytics, parsed=parsed,
                         market_metadata=latest_meta, fx_snapshot=attempt_trust["fx_snapshot"], policy=trust_policy)
-                    history_meta = {**history_meta, "actual_performance": actual_meta, "fx": fx_meta}
+                    history_meta = {**history_meta, "period": history_period, "actual_performance": actual_meta, "fx": fx_meta}
                     coverage = analytics.get("meta", {}).get("coverage", {})
                     if not coverage.get("available", True):
                         st.warning("Portfolio risk is unavailable: " + str(coverage.get("reason")))
@@ -875,53 +873,8 @@ with main_col:
                 insight_box(insights.get("risk_contribution", ""))
 
             section_header("Historical Behaviour", "PERFORMANCE THROUGH TIME", "Portfolio growth and peak-to-trough drawdown across the selected historical window.")
-            actual = analytics.get("actual_performance", {})
-            has_dated_history = bool(state.get("accounting_history", {}).get("available"))
-            show_actual = False
-            if has_dated_history:
-                show_actual = st.toggle(
-                    "View dated account / reconstructed holdings history",
-                    value=False,
-                    key="show_actual_portfolio_performance",
-                    help="Switch between the historical simulation of today's holdings and the dated portfolio path reconstructed from supplied purchase dates/prices or transaction executions.",
-                )
-                if show_actual and actual.get("available"):
-                    method = str(actual.get("method") or "dated accounting history")
-                    if method == "reconstructed dated holdings":
-                        st.caption("Reconstructed from the supplied purchase dates and quantities using historical market prices and FX. Each current position appears only from its purchase date; quantities are interpreted as current, split-adjusted shares. Historical cash is approximated by constant currency balances and dividends are excluded from this price-only reconstruction. Purchase prices remain cost-basis information; position entry is neutralised at its first market mark so it is not mistaken for investment return. Previously sold positions and historical cash movements cannot be inferred from a holdings snapshot.")
-                    else:
-                        st.caption("Reconstructed from the dated transaction ledger and supplied execution prices. External deposits and withdrawals use an end-of-day timing convention. Cash stays in its stated currency; supplied dividend cash flows are included once. Missing dividend records mean income is incomplete.")
-                elif show_actual:
-                    st.info(actual.get("reason") or "Dated portfolio information was detected, but the reconstructed performance path is unavailable.")
-
-            chart_analytics = analytics
-            if show_actual and actual.get("available"):
-                chart_analytics = dict(analytics)
-                chart_analytics["series"] = dict(analytics.get("series", {}))
-                chart_analytics["series"]["portfolio_path"] = actual.get("portfolio_path", [])
-
-            chart3, chart4 = st.columns(2, gap="medium")
-            with chart3:
-                if show_actual and actual.get("available"):
-                    render_chart(reconstructed_value_figure(actual), use_container_width=True, config={"displaylogo": False})
-                    summary = actual.get("accounting_summary", {})
-                    insight_box(
-                        f"Reconstructed value of the currently-held positions. Ending value: "
-                        f"{number(summary.get('ending_equity'))} {actual.get('base_currency', 'USD')}. "
-                        "Purchase dates control when each holding enters the history."
-                    )
-                else:
-                    render_chart(performance_figure(chart_analytics), use_container_width=True, config={"displaylogo": False})
-                if not (show_actual and actual.get("available")):
-                    pass
-                else:
-                    insight_box(insights.get("volatility", ""))
-            with chart4:
-                render_chart(drawdown_figure(chart_analytics), use_container_width=True, config={"displaylogo": False})
-                if show_actual and actual.get("available"):
-                    insight_box(f"Maximum drawdown on the reconstructed dated portfolio path is {percent(actual.get('metrics', {}).get('max_drawdown'))}.")
-                else:
-                    insight_box(insights.get("drawdown", ""))
+            from portfolio_analytics.ui.history_workspace import render_history_workspace
+            render_history_workspace(state, analytics)
 
             section_header("Diversification & Exposure", "PORTFOLIO RELATIONSHIPS", "Correlation and signed exposure show how positions interact and where concentration can build.")
             chart5, chart6 = st.columns([1.15, 0.85], gap="medium")

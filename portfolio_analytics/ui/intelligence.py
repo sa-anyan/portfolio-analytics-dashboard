@@ -96,6 +96,8 @@ def render_intelligence(state, analytics, perspective):
             if not frame.empty:
                 ranked = frame.loc[frame['Asset class'] != 'Cash'].dropna(subset=['exposure']).nlargest(8, 'exposure')
                 _plot(_layout(px.bar(ranked, x='exposure', y='ticker', orientation='h', color_discrete_sequence=PREMIUM_SEQUENCE), 'Largest holdings · gross exposure'))
+        from portfolio_analytics.ui.history_workspace import render_history_workspace
+        render_history_workspace(state, analytics)
         findings = analytics.get('deep_findings', {}).get('findings', [])
         for finding in findings[:3]:
             if finding.get('id') == 'risk_unavailable':

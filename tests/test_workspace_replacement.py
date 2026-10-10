@@ -67,8 +67,8 @@ def test_repeated_csv_upload_with_history_failure_and_invalid_replacement(monkey
     assert state['totals']['equity'] == 1500
     assert [p['ticker'] for p in state['positions']] == ['MSFT']
     assert app.session_state['latest_scenario'] is None
-    assert any('Portfolio Growth unavailable' in c.value for c in app.caption)
-    assert any('Drawdown unavailable' in c.value for c in app.caption)
+    assert sum('Missing return/FX coverage' in c.value for c in app.caption)>=2
+    assert any('Verify exact Yahoo listing identifiers' in c.value for c in app.caption)
     active[0] = SimpleNamespace(name='same.csv', getvalue=lambda: b'bad\ninvalid\n')
     accept()
     assert app.session_state['portfolio_state'] == state

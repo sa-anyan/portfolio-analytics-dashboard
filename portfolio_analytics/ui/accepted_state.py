@@ -9,6 +9,7 @@ DEPENDENT_KEYS = {
     'exposure_selected_identity', 'exposure_security', 'constituent_parent',
     'constituent_draft', 'fund_constituents', 'fund_eligibility', 'eligibility_parent',
     'show_actual_portfolio_performance', 'dashboard_focus',
+    'overview_history_results', 'overview_history_mode', 'overview_history_period', 'overview_history_preferences', 'overview_history_refresh',
 }
 
 
