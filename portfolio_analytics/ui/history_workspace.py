@@ -67,11 +67,17 @@ def _retain_selection(key, fallback):
 def render_history_workspace(state, analytics):
     st.markdown('**Portfolio history**')
     preferences=st.session_state.setdefault('overview_history_preferences',{})
+    # Streamlit cleans up widget values when a section is hidden. Restore the
+    # independently retained preference before creating the widget again.
+    if st.session_state.get('overview_history_mode') is None:
+        st.session_state['overview_history_mode']=preferences.get('mode',SIMULATE)
     mode=st.segmented_control('Historical analysis mode',[SIMULATE,ACTUAL],default=preferences.get('mode',SIMULATE),key='overview_history_mode',label_visibility='collapsed',on_change=_retain_selection,args=('overview_history_mode',SIMULATE)) or SIMULATE
     accepted=st.session_state.get('market_metadata') or {}
     original_period=accepted.get('history',{}).get('period','3y')
     periods=['1y','3y','5y','10y']
     initial_period=preferences.get('period',original_period if original_period in periods else '3y')
+    if st.session_state.get('overview_history_period') is None:
+        st.session_state['overview_history_period']=initial_period
     period=st.segmented_control('Historical analysis period',periods,format_func=lambda p:p.upper(),default=initial_period,key='overview_history_period',label_visibility='collapsed',on_change=_retain_selection,args=('overview_history_period',initial_period)) or initial_period
     preferences.update(mode=mode,period=period)
     st.caption(f"Simulate holding today's portfolio over the past {period.upper()}" if mode==SIMULATE else 'Use my actual portfolio history')

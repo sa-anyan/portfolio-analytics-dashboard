@@ -1,0 +1,11 @@
+Parent Ticker,Constituent Ticker,Weight (%),As Of Date,Asset Class
+SPY,NVDA,8,2026-09-30,Equity
+SPY,MSFT,7,2026-09-30,Equity
+SPY,AAPL,7,2026-09-30,Equity
+SPY,JPM,2,2026-09-30,Equity
+SPY,XOM,1.5,2026-09-30,Equity
+SPY,JNJ,1.5,2026-09-30,Equity
+SPY,AMZN,4,2026-09-30,Equity
+SPY,GOOGL,3,2026-09-30,Equity
+SPY,META,3,2026-09-30,Equity
+SPY,BRK-B,2,2026-09-30,Equity
