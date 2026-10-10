@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 import streamlit as st
-from portfolio_analytics.core import market_data, fx
+from portfolio_analytics.core import market_data, fx, history_listings
 from portfolio_analytics.ai import copilot
 
 
@@ -16,6 +16,7 @@ def test_manual_mixed_currency_portfolio_reaches_dashboard_with_consistent_accou
         result.attrs["splits"] = pd.DataFrame()
         return result, {"source": "test"}
     monkeypatch.setattr(market_data, "fetch_price_history", history)
+    monkeypatch.setattr(history_listings, "_metadata", lambda ticker: {"symbol": ticker, "currency": "GBp", "longName": "Synthetic UKTEST"})
     monkeypatch.setattr(market_data, "fetch_latest_prices", lambda tickers: ({"UKTEST": 200, "USTEST": 100}, {"source": "test"}))
     monkeypatch.setattr(fx, "fetch_fx_history", lambda *args, **kwargs: (pd.DataFrame({"GBP": [1.25, 1.3, 1.35, 1.4]}, index=dates), {"source": "test"}))
     monkeypatch.setattr(copilot, "generate_dashboard_insights", lambda *args, **kwargs: {})
