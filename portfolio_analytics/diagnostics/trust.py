@@ -81,7 +81,9 @@ def diagnose_trust(state: dict | None, analytics: dict | None = None, *,
                    fx_snapshot: dict | None = None, as_of: Any = None,
                    policy: TrustPolicy | None = None, failure: str | None = None) -> dict:
     policy = policy or TrustPolicy()
-    now = _date(as_of) if as_of is not None else today()
+    declared_snapshot = (parsed or {}).get('source', {}).get('snapshot_validation', {}).get('valuation_date')
+    # Only explicitly reconciled reporting snapshots establish a dated valuation.
+    now = _date(as_of if as_of is not None else declared_snapshot) if as_of is not None or declared_snapshot else today()
     if now is None:
         raise ValueError("Invalid diagnostic as-of date")
     analytics, market_metadata = analytics or {}, market_metadata or {}
@@ -220,8 +222,12 @@ def diagnose_trust(state: dict | None, analytics: dict | None = None, *,
                   actual.get("reason") or "Complete dated account history is required. The current-weight simulation is a separate hypothetical analysis.", ["actual_performance"], (state or {}).get("accounting_history", {}).get("missing_dated_basis", []))
     if state and not positions:
         issue("no_securities", "info", "No open securities", "Security concentration is undefined. Base-currency cash earning zero is an explicit model assumption; missing risk is not zero risk.", ["concentration", "risk"])
-    importance = {"risk_coverage": 0, "risk_values_unavailable": 1, "risk_short_sample": 2,
+    importance = {"valuation_rejected": -1, "risk_coverage": 0, "risk_values_unavailable": 1, "risk_short_sample": 2,
                   "price_stale": 3, "price_future": 3, "price_date_unknown": 4}
+    if declared_snapshot and now < today():
+        issue('historical_snapshot', 'info', 'Historical statement valuation',
+              'Valuation and observation freshness refer to the user-declared statement date. This is not a current valuation; the source date has not been independently verified.',
+              ['valuation'], evidence={'valuation_date': now.date().isoformat(), 'checked_on': today().date().isoformat()})
     issues.sort(key=lambda i: ({"blocker": 0, "warning": 1, "info": 2}[i["severity"]], importance.get(i["code"], 5), i["code"], i["holdings"]))
     blocked = any(i["severity"] == "blocker" and "valuation" in i["affects"] for i in issues)
     if blocked:
@@ -232,7 +238,7 @@ def diagnose_trust(state: dict | None, analytics: dict | None = None, *,
         "warning" if any("performance" in i["affects"] for i in issues) else "checked")
     meta = analytics.get("meta", {})
     common_dates = [r.get("date") for r in analytics.get("series", {}).get("portfolio_returns", []) if r.get("date")]
-    return {"as_of": now.date().isoformat(), "policy": asdict(policy), "reporting_currency": base,
+    return {"as_of": now.date().isoformat(), "checked_on": today().date().isoformat(), "policy": asdict(policy), "reporting_currency": base,
             "valuation_status": "blocked" if blocked else "warning" if any("valuation" in i["affects"] for i in issues) else "checked",
             "risk_status": risk_status, "actual_performance_status": performance_status,
             "issues": issues, "currencies": currency_rows,

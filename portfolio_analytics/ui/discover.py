@@ -67,10 +67,21 @@ def _finding(finding: dict, deep: dict) -> None:
 
 def render_discover(state: dict | None, analytics: dict | None) -> None:
     st.subheader("Deep Analytics")
-    view = st.radio("Deep Analytics view", ["Discover", "Exposure"], horizontal=True, key="deep_analytics_view")
+    view = st.radio("Deep Analytics view", ["Overview", "Performance & Macro", "Drivers", "Exposure", "Risk", "Discover"], horizontal=True, key="deep_analytics_view")
+    if view not in {"Discover", "Exposure"}:
+        from portfolio_analytics.ui.intelligence import render_intelligence
+        render_intelligence(state, analytics, view)
+        if analytics and analytics.get('trust_diagnostics'):
+            with st.expander('Data Quality / Trust'):
+                render_trust(analytics['trust_diagnostics'])
+        return
     if view == "Exposure":
         from portfolio_analytics.ui.constituents import render_exposure
-        render_exposure(state)
+        if state and analytics:
+            from portfolio_analytics.ui.intelligence import render_exposure_visuals
+            render_exposure_visuals(state, analytics)
+        with st.expander('ETF sources, coverage and security investigation', expanded=False):
+            render_exposure(state)
         return
     st.caption("Discover · What matters, why it matters, and where to investigate next.")
     if analytics and analytics.get("trust_diagnostics"):

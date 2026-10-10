@@ -11,6 +11,7 @@ inside the package engines.
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 import os
 from io import BytesIO
 from pathlib import Path
@@ -26,26 +27,28 @@ from portfolio_analytics.security.demo_quota import remaining, authorised_demo_q
 from portfolio_analytics.security.session import synchronise_owner
 from portfolio_analytics.analytics.engine import run_analytics, run_account_performance, returns_from_analytics
 from portfolio_analytics.analytics.combination_risk import calculate_combination_risk
-from portfolio_analytics.core.market_data import fetch_latest_prices, fetch_price_history
+from portfolio_analytics.core.market_data import fetch_latest_prices
+from portfolio_analytics.input_engine.price_history import spreadsheet_price_history
+from portfolio_analytics.core.history_listings import fetch_listing_history, listing_rows
 from portfolio_analytics.core.fx import fetch_fx_history
 from portfolio_analytics.core.portfolio_state import build_portfolio_state
 from portfolio_analytics.input_engine.manual import parse_manual_holdings
 from portfolio_analytics.input_engine.parser import parse_upload
+from portfolio_analytics.input_engine.snapshot import reported_snapshot
 from portfolio_analytics.ui.discover import render_discover
+from portfolio_analytics.ui.accepted_state import replace_accepted
 from portfolio_analytics.ui.trust import render_trust
 from portfolio_analytics.ui.consolidation import render_ingestion
 from portfolio_analytics.diagnostics.trust import diagnose_trust, TrustPolicy, finite, risk_values_for_display
 from portfolio_analytics.ui.insights import fallback_insights
 from portfolio_analytics.ui.styles import APP_CSS, HERO_HTML
+from portfolio_analytics.ui.chart_guard import render_chart
 from portfolio_analytics.ui.visuals import (
     correlation_heatmap,
     combination_risk_heatmap,
     combination_risk_ranked,
-    drawdown_figure,
     exposure_bar,
     holdings_donut,
-    performance_figure,
-    reconstructed_value_figure,
     risk_contribution_donut,
     scenario_comparison_bar,
     scenario_position_change_bar,
@@ -59,7 +62,10 @@ from portfolio_analytics.ui.visuals import (
 UI_BUILD = "2026.10.03-premium-dark-2"
 st.set_page_config(page_title="Portfolio Analytics v4", layout="wide")
 st.markdown(APP_CSS, unsafe_allow_html=True)
-st.markdown(HERO_HTML, unsafe_allow_html=True)
+if st.session_state.get('workspace') == 'Deep Analytics':
+    st.markdown('### Portfolio Analytics')
+else:
+    st.markdown(HERO_HTML, unsafe_allow_html=True)
 st.caption("Session-only workspace: accepted portfolios, upload reviews, ETF data and chat may be lost on refresh, expiry or restart. They are not saved for recovery. Remove uploads before leaving a shared computer; reset is not a secure-erasure guarantee.")
 
 
@@ -108,15 +114,17 @@ def money(value: Any, *, compact: bool = False) -> str:
         if not finite(value):
             return "—"
         amount = float(value)
+        base = (st.session_state.get("portfolio_state") or {}).get("meta", {}).get("base_currency", "USD")
+        symbol = {"USD": "$", "GBP": "£", "EUR": "€"}.get(base, base + " ")
         if compact:
             absolute = abs(amount)
             if absolute >= 1_000_000_000:
-                return f"${amount / 1_000_000_000:,.2f}B"
+                return f"{symbol}{amount / 1_000_000_000:,.2f}B"
             if absolute >= 1_000_000:
-                return f"${amount / 1_000_000:,.2f}M"
+                return f"{symbol}{amount / 1_000_000:,.2f}M"
             if absolute >= 1_000:
-                return f"${amount / 1_000:,.1f}K"
-        return f"${amount:,.2f}"
+                return f"{symbol}{amount / 1_000:,.1f}K"
+        return f"{symbol}{amount:,.2f}"
     except (TypeError, ValueError):
         return "—"
 
@@ -124,18 +132,22 @@ def money(value: Any, *, compact: bool = False) -> str:
 def metric_money(label: str, value: Any, *, help: str | None = None, tone: str = "neutral") -> None:
     """Finance-style KPI: readable full value without Streamlit truncation."""
     try:
-        amount = float(value) if finite(value) else None
+        amount = float(value)
+        base = (st.session_state.get("portfolio_state") or {}).get("meta", {}).get("base_currency", "USD")
+        symbol = {"USD": "$", "GBP": "£", "EUR": "€"}.get(base, base + " ") if finite(value) else None
     except (TypeError, ValueError):
         amount = None
 
+    base = (st.session_state.get("portfolio_state") or {}).get("meta", {}).get("base_currency", "USD")
+    symbol = {"USD": "$", "GBP": "£", "EUR": "€"}.get(base, base + " ")
     if amount is None:
         display = "—"
     elif abs(amount) >= 1_000_000_000:
-        display = f"${amount / 1_000_000_000:,.2f}B"
+        display = f"{symbol}{amount / 1_000_000_000:,.2f}B"
     elif abs(amount) >= 1_000_000:
-        display = f"${amount / 1_000_000:,.2f}M"
+        display = f"{symbol}{amount / 1_000_000:,.2f}M"
     else:
-        display = f"${amount:,.2f}"
+        display = f"{symbol}{amount:,.2f}"
 
     help_attr = f' title="{help}"' if help else ""
     exact = money(amount) if amount is not None else "—"
@@ -255,17 +267,29 @@ def cached_latest_prices(tickers: tuple[str, ...]):
 
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
-def cached_price_history(tickers: tuple[str, ...], period: str):
-    return fetch_price_history(list(tickers), period=period)
+def cached_price_history(tickers: tuple[str, ...], period: str, listings: tuple = ()):
+    return fetch_listing_history(list(tickers), period=period, listings=listings)
+
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
+def cached_snapshot_price_history(tickers: tuple[str, ...], period: str, valuation_date: str, listings: tuple = ()):
+    end = pd.Timestamp(valuation_date)
+    start = end - pd.DateOffset(years=int(period[:-1]))
+    return fetch_listing_history(list(tickers), start=start.date().isoformat(), end=(end + pd.Timedelta(days=1)).date().isoformat(), listings=listings)
+
 
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
-def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting"):
-    return fetch_price_history(list(tickers), start=start_date, price_basis=price_basis)
+def cached_dated_price_history(tickers: tuple[str, ...], start_date: str, price_basis: str = "accounting", listings: tuple = ()):
+    return fetch_listing_history(list(tickers), start=start_date, price_basis=price_basis, listings=listings)
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
 def cached_fx_history(currencies: tuple[str, ...], start_date: str):
     return fetch_fx_history(list(currencies), start=start_date, base="USD")
+
+
+@st.cache_data(ttl=3600)
+def cached_reporting_fx_history(currencies, start_date, base):
+    return fetch_fx_history(list(currencies), start=start_date, base=base)
 
 
 def prepare_account_candidate(batch, declarations, overrides, live, period, policy):
@@ -312,7 +336,7 @@ def prepare_account_candidate(batch, declarations, overrides, live, period, poli
                 market_metadata=latest_meta, fx_history=fx, as_of=as_of, policy=policy)
             candidate['trust'] = analytics['trust_diagnostics']
             candidate['analytics'] = analytics
-            candidate['market_metadata'] = {'latest': latest_meta, 'history': {**history_meta, 'actual_performance': actual_meta, 'fx': fx_meta}}
+            candidate['market_metadata'] = {'latest': latest_meta, 'history': {**history_meta, 'period': period, 'actual_performance': actual_meta, 'fx': fx_meta}}
         return candidate
     except Exception as exc:
         preliminary.update(ready=False, errors=[str(exc)])
@@ -365,118 +389,117 @@ else:
 api_key = get_api_key()
 
 with copilot_col:
-    st.markdown('<div class="pa-copilot">', unsafe_allow_html=True)
-    st.subheader("AI Copilot")
-    st.caption("Connected to parser, Portfolio State, analytics and scenario functions. Python calculates; Copilot interprets and explains.")
-    paid_access = False
-    demo_access = False
-    allowance = st.empty()
-    try:
-        access_policy = policy()
-        demo_access = access_policy.mode == 'public_demo'
-        if demo_access:
-            questions_left = remaining(st.context.headers)
-            allowance.caption(f'{questions_left} of 5 AI questions remaining for this network across the demo. No daily reset. Accepted questions count even if AI fails.')
-            st.caption('Quota records use a private keyed network hash, not a stored raw IP. Shared networks share the allowance. Records are deleted within 7 days after the demo ends; analytics remain session-only.')
-            if questions_left == 0:
-                raise AIUnavailable(EXHAUSTED)
-        else:
-            identity(st.user)
-        paid_access = bool(api_key)
-        if not paid_access:
-            st.info("Paid Copilot is unavailable: server credentials are not configured.")
-        else:
-            st.caption("Authorised access · shared server request/token controls apply to every provider attempt.")
-    except AIUnavailable as exc:
-        st.info(str(exc))
-        if os.getenv('AI_ACCESS_POLICY') == 'controlled_oidc' and not getattr(st.user, 'is_logged_in', False):
-            if st.button("Sign in for controlled Copilot access"):
-                try:
-                    st.login()
-                except Exception:
-                    st.error("Server sign-in is unavailable; ask the operator to verify OIDC configuration.")
-    ai_consent = st.checkbox("Allow this question and portfolio evidence to be sent to OpenAI", disabled=not paid_access, key='ai_submission_consent')
-    st.caption("AI submission can include holdings, quantities, values, risk metrics and recent chat. Raw upload tables and provenance are excluded; identifiers in submitted prose may still be sent. No AI calls occur during upload or navigation.")
-    if getattr(st.user, 'is_logged_in', False) and st.button('Sign out and reset session'):
-        st.session_state.clear()
-        st.logout()
+    with st.expander("AI Copilot · questions and scenarios", expanded=False):
+        st.subheader("AI Copilot")
+        st.caption("Investigate your accepted portfolio and hypothetical scenarios.")
+        paid_access = False
+        demo_access = False
+        allowance = st.empty()
+        try:
+            access_policy = policy()
+            demo_access = access_policy.mode == 'public_demo'
+            if demo_access:
+                questions_left = remaining(st.context.headers)
+                allowance.caption(f'{questions_left} of 5 AI questions remaining for this network across the demo. No daily reset. Accepted questions count even if AI fails.')
+                st.caption('Quota records use a private keyed network hash, not a stored raw IP. Shared networks share the allowance. Records are deleted within 7 days after the demo ends; analytics remain session-only.')
+                if questions_left == 0:
+                    raise AIUnavailable(EXHAUSTED)
+            else:
+                identity(st.user)
+            paid_access = bool(api_key)
+            if not paid_access:
+                st.info("Paid Copilot is unavailable: server credentials are not configured.")
+            else:
+                st.caption("Authorised access · shared server request/token controls apply to every provider attempt.")
+        except AIUnavailable as exc:
+            st.info(str(exc))
+            if os.getenv('AI_ACCESS_POLICY') == 'controlled_oidc' and not getattr(st.user, 'is_logged_in', False):
+                if st.button("Sign in for controlled Copilot access"):
+                    try:
+                        st.login()
+                    except Exception:
+                        st.error("Server sign-in is unavailable; ask the operator to verify OIDC configuration.")
+        ai_consent = st.checkbox("Allow this question and portfolio evidence to be sent to OpenAI", disabled=not paid_access, key='ai_submission_consent')
+        st.caption("AI submission can include holdings, quantities, values, risk metrics and recent chat. Raw upload tables and provenance are excluded; identifiers in submitted prose may still be sent. No AI calls occur during upload or navigation.")
+        if getattr(st.user, 'is_logged_in', False) and st.button('Sign out and reset session'):
+            st.session_state.clear()
+            st.logout()
 
-    auto_ai_insights = st.toggle(
-        "Automatic Copilot captions",
-        value=False,
-        disabled=True,
-        help="Disabled in the public demo so the AI allowance is reserved for questions you choose to ask.",
-    )
-
-    if st.session_state.portfolio_state is not None:
-        for message in st.session_state.copilot_messages[-8:]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        question = st.text_area(
-            "Ask anything about the portfolio",
-            placeholder=(
-                "Examples:\n"
-                "Which holdings have the largest weights?\n"
-                "Why is my VaR high?\n"
-                "What caused my drawdown in 2020?\n"
-                "Which ticker contributed most to that drawdown?\n"
-                "What if NVDA falls 25%?\n"
-                "What if rates rise 100 bps and I halve NVDA?\n"
-                "Target 10% annual volatility."
-            ),
-            height=135,
-            max_chars=1000,
-            key="copilot_question",
+        auto_ai_insights = st.toggle(
+            "Automatic Copilot captions",
+            value=False,
+            disabled=True,
+            help="Disabled in the public demo so the AI allowance is reserved for questions you choose to ask.",
         )
 
-        if not valuation_ok:
-            st.warning("Refresh valuation inputs before asking Copilot or running scenarios.")
-        if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=not paid_access or not ai_consent or not valuation_ok):
-            if not api_key:
-                st.error("Copilot needs an OpenAI API key.")
-            elif question.strip():
-                st.session_state.copilot_messages = st.session_state.copilot_messages[-10:]
-                st.session_state.copilot_messages.append({"role": "user", "content": question})
-                try:
-                    authorisation = (authorised_demo_question(st.context.headers, ai_consent, question)
-                                     if demo_access else authorised_request(st.user, ai_consent))
-                    with authorisation, st.spinner("Copilot is reading the portfolio engines..."):
-                        response = ask_copilot(
-                            question,
-                            parsed=st.session_state.parsed,
-                            state=st.session_state.portfolio_state,
-                            analytics=st.session_state.analytics,
-                            previous_scenario=st.session_state.latest_scenario,
-                            conversation_history=st.session_state.copilot_messages[:-1],
-                            api_key=api_key,
-                        )
-                    st.session_state.copilot_messages.append({"role": "assistant", "content": response["answer"]})
-                    st.session_state.copilot_uses += 1
-                    if response.get("scenario") is not None:
-                        st.session_state.latest_scenario = response["scenario"]
-                    st.rerun()
-                except Exception as exc:
-                    st.error(str(exc) if isinstance(exc, AIUnavailable) else "Copilot could not complete that request. No portfolio changes were accepted.")
-                    if demo_access:
-                        try:
-                            allowance.caption(f'{remaining(st.context.headers)} of 5 AI questions remaining for this network across the demo. No daily reset.')
-                        except AIUnavailable:
-                            allowance.caption('AI allowance is unavailable; requests are paused.')
+        if st.session_state.portfolio_state is not None:
+            for message in st.session_state.copilot_messages[-8:]:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-        control_col1, control_col2 = st.columns(2)
-        with control_col1:
-            if st.session_state.latest_scenario is not None:
-                if st.button("Reset scenario", use_container_width=True):
-                    st.session_state.latest_scenario = None
-                    st.rerun()
-        with control_col2:
-            if st.session_state.copilot_messages:
-                if st.button("Clear chat", use_container_width=True):
-                    st.session_state.copilot_messages = []
-                    st.rerun()
+            question = st.text_area(
+                "Ask anything about the portfolio",
+                placeholder=(
+                    "Examples:\n"
+                    "Which holdings have the largest weights?\n"
+                    "Why is my VaR high?\n"
+                    "What caused my drawdown in 2020?\n"
+                    "Which ticker contributed most to that drawdown?\n"
+                    "What if NVDA falls 25%?\n"
+                    "What if rates rise 100 bps and I halve NVDA?\n"
+                    "Target 10% annual volatility."
+                ),
+                height=135,
+                max_chars=1000,
+                key="copilot_question",
+            )
 
-    st.markdown("</div>", unsafe_allow_html=True)
+            if not valuation_ok:
+                st.warning("Refresh valuation inputs before asking Copilot or running scenarios.")
+            if st.button("Ask Copilot", type="primary", use_container_width=True, disabled=not paid_access or not ai_consent or not valuation_ok):
+                if not api_key:
+                    st.error("Copilot needs an OpenAI API key.")
+                elif question.strip():
+                    st.session_state.copilot_messages = st.session_state.copilot_messages[-10:]
+                    st.session_state.copilot_messages.append({"role": "user", "content": question})
+                    try:
+                        authorisation = (authorised_demo_question(st.context.headers, ai_consent, question)
+                                         if demo_access else authorised_request(st.user, ai_consent))
+                        with authorisation, st.spinner("Copilot is reading the portfolio engines..."):
+                            response = ask_copilot(
+                                question,
+                                parsed=st.session_state.parsed,
+                                state=st.session_state.portfolio_state,
+                                analytics=st.session_state.analytics,
+                                previous_scenario=st.session_state.latest_scenario,
+                                conversation_history=st.session_state.copilot_messages[:-1],
+                                api_key=api_key,
+                            )
+                        st.session_state.copilot_messages.append({"role": "assistant", "content": response["answer"]})
+                        st.session_state.copilot_uses += 1
+                        if response.get("scenario") is not None:
+                            st.session_state.latest_scenario = response["scenario"]
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc) if isinstance(exc, AIUnavailable) else "Copilot could not complete that request. No portfolio changes were accepted.")
+                        if demo_access:
+                            try:
+                                allowance.caption(f'{remaining(st.context.headers)} of 5 AI questions remaining for this network across the demo. No daily reset.')
+                            except AIUnavailable:
+                                allowance.caption('AI allowance is unavailable; requests are paused.')
+
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                if st.session_state.latest_scenario is not None:
+                    if st.button("Reset scenario", use_container_width=True):
+                        st.session_state.latest_scenario = None
+                        st.rerun()
+            with control_col2:
+                if st.session_state.copilot_messages:
+                    if st.button("Clear chat", use_container_width=True):
+                        st.session_state.copilot_messages = []
+                        st.rerun()
+
 
 
 #______________________________________________________________________________
@@ -492,7 +515,7 @@ with main_col:
             horizontal=True,
         )
 
-        st.caption("Use the listing's quote currency (GBX for pence). Holdings snapshots use current shares and cost per current share; ledger rows use original execution quantities/prices. Starting cash is USD.")
+        st.caption("Use the listing's quote currency (GBX for pence). Holdings snapshots use current shares and cost per current share; ledger rows use original execution quantities/prices. Additional cash uses the reporting currency: USD normally, GBP for a validated GBP statement.")
 
         settings_col1, settings_col2, settings_col3 = st.columns(3)
         with settings_col1:
@@ -502,6 +525,13 @@ with main_col:
         with settings_col3:
             use_live_prices = st.toggle("Use live market prices", value=True)
 
+        use_sheet_history = st.checkbox("Use spreadsheet price history", value=False) if source_type != "Multiple account files" else False
+        history_upload = None
+        if use_sheet_history:
+            st.caption("Upload dated daily total-return adjusted prices: Date, Ticker, Adjusted Close. Prices must use each holding’s trading currency/units. Current quotes and purchase dates are not price history. FX history still comes from Yahoo Finance.")
+            history_upload = st.file_uploader("Spreadsheet price history", type=["csv", "xlsx"], key="history_upload")
+        else:
+            st.caption("Historical risk and instrument charts use Yahoo Finance adjusted prices over the selected window. Supplied snapshot values remain separate; this models today’s holdings, not actual past account performance.")
         uploaded = None
         manual_frame = None
 
@@ -555,6 +585,27 @@ with main_col:
             )
             st.session_state.manual_rows = manual_frame
 
+        snapshot_date = None
+        upload_fingerprint = None
+        supplied_snapshot = False
+        if uploaded is not None and hasattr(uploaded, 'getvalue'):
+            try:
+                upload_fingerprint = sha256(uploaded.getvalue()).hexdigest()
+                if st.session_state.get('_upload_preview_fingerprint') != upload_fingerprint:
+                    st.session_state['_upload_preview_fingerprint'] = upload_fingerprint
+                    st.session_state.pop('snapshot_valuation_date', None)
+                preview = parse_upload(uploaded.getvalue(), uploaded.name)
+                accepted_source = (st.session_state.get('parsed') or {}).get('source', {})
+                if st.session_state.get('portfolio_state') and accepted_source.get('fingerprint') != upload_fingerprint:
+                    st.caption('Replacement selected. The analysis below remains the previous accepted portfolio until Parse & Analyse succeeds.')
+                supplied_snapshot = preview['classification'] == 'holdings' and 'Market Value (GBP)' in preview['user_dataset']['columns']
+            except ValueError:
+                pass  # The submission path reports the validation failure.
+        if supplied_snapshot:
+            st.caption('GBP statement detected. Supplied quotes, FX and cost basis take precedence after reconciliation; historical performance is separate.')
+            snapshot_date = st.date_input('Statement valuation date', value=None, key='snapshot_valuation_date')
+            st.caption('Use the date of the statement prices and FX, not a purchase date. An undated statement cannot establish fresh currency conversion evidence.')
+
         analyse = st.button("Parse & Analyse Portfolio", type="primary", disabled=source_type == "Multiple account files")
 
         if analyse:
@@ -567,9 +618,16 @@ with main_col:
                         if uploaded is None:
                             raise ValueError("Upload a portfolio file first.")
                         parsed = parse_upload(uploaded.getvalue(), uploaded.name, starting_cash=starting_cash)
+                        parsed["source"]["fingerprint"] = sha256(uploaded.getvalue()).hexdigest()
                     else:
                         parsed = parse_manual_holdings(manual_frame, starting_cash=starting_cash)
 
+                snapshot = reported_snapshot(parsed, snapshot_date) if supplied_snapshot else None
+                if supplied_snapshot and snapshot_date is None:
+                    raise ValueError('Choose the statement valuation date before accepting the GBP snapshot.')
+                if snapshot:
+                    parsed, supplied_fx = snapshot
+                reporting_currency = 'GBP' if snapshot else 'USD'
                 tickers = tuple(parsed.get("variables", {}).get("tickers", []))
                 # CASH is a reserved non-market asset. Never send it to a market-data
                 # provider where the symbol may resolve to an unrelated security.
@@ -577,15 +635,35 @@ with main_col:
                 supplied_prices = parsed.get("variables", {}).get("provided_prices", {})
 
                 latest_prices: dict[str, float] = dict(supplied_prices)
-                latest_meta: dict[str, Any] = {"source": "user supplied", "as_of": None, "missing": []}
+                latest_meta: dict[str, Any] = {"source": "user supplied", "as_of": snapshot_date.isoformat() if snapshot else None, "missing": []}
 
-                if use_live_prices and market_tickers:
+                if snapshot:
+                    latest_meta['observations'] = {t: {'as_of': snapshot_date.isoformat(), 'source': 'User-supplied statement; valuation date declared by user'} for t in market_tickers}
+
+                if use_live_prices and market_tickers and not snapshot:
                     with st.spinner("Fetching current market prices..."):
-                        market_prices, latest_meta = cached_latest_prices(market_tickers)
+                        try:
+                            market_prices, latest_meta = cached_latest_prices(market_tickers)
+                        except Exception:
+                            market_prices = {}
+                            latest_meta = {"source": "user supplied; live quote provider unavailable", "as_of": None, "missing": [t for t in market_tickers if t not in supplied_prices]}
                     latest_prices.update(market_prices)
 
                 with st.spinner("Fetching market and currency history..."):
-                    history, history_meta = cached_price_history(market_tickers, history_period)
+                    try:
+                        if use_sheet_history:
+                            if history_upload is None:
+                                raise ValueError("Upload dated spreadsheet price history or uncheck the spreadsheet option.")
+                            history, history_meta = spreadsheet_price_history(history_upload.getvalue(), history_upload.name, market_tickers, history_period, as_of=snapshot_date if snapshot else None)
+                        else:
+                            if snapshot:
+                                history, history_meta = cached_snapshot_price_history(market_tickers, history_period, snapshot_date.isoformat(), listing_rows(parsed.get("user_dataset",{}).get("records",[])))
+                            else:
+                                history, history_meta = cached_price_history(market_tickers, history_period, listing_rows(parsed.get("user_dataset",{}).get("records",[])))
+                    except Exception:
+                        if use_sheet_history:
+                            raise
+                        history, history_meta = pd.DataFrame(), {"source": "Yahoo Finance unavailable", "reason": "Price-history provider unavailable"}
                     normalised = parsed.get("normalised_dataset", {})
                     records = normalised.get("holdings", []) + normalised.get("ledger", []) + normalised.get("cashflows", [])
                     currencies = tuple(sorted({str(row.get("Currency") or "USD").upper() for row in records}))
@@ -595,15 +673,33 @@ with main_col:
                     earliest = min(starts) if starts else pd.Timestamp.today()
                     # Include prior FX observations for holidays/weekend acquisitions.
                     fx_start = (earliest - pd.Timedelta(days=7)).date().isoformat()
-                    fx_history, fx_meta = cached_fx_history(currencies, fx_start)
+                    if snapshot:
+                        try:
+                            fx_history, fx_meta = cached_reporting_fx_history(currencies, fx_start, reporting_currency)
+                        except Exception:
+                            fx_history, fx_meta = pd.DataFrame(), {'source': 'unavailable', 'reason': 'Historical FX unavailable'}
+                        # Dated statement observations replace same-date provider rates only.
+                        if not fx_history.empty:
+                            fx_history = fx_history.loc[fx_history.index <= pd.Timestamp(snapshot_date)]
+                        fx_history = pd.concat([fx_history, supplied_fx]).groupby(level=0).last().sort_index()
+                        history = history.loc[history.index <= pd.Timestamp(snapshot_date)] if not history.empty else history
+                    else:
+                        fx_history, fx_meta = cached_fx_history(currencies, fx_start)
                     actual_history, actual_meta = pd.DataFrame(), {}
-                    if dated_values:
+                    if dated_values and not snapshot:
                         price_basis = "accounting" if parsed["classification"] == "ledger" else "split_adjusted_close"
-                        actual_history, actual_meta = cached_dated_price_history(market_tickers, min(dated_values).date().isoformat(), price_basis)
+                        try:
+                            actual_history, actual_meta = cached_dated_price_history(market_tickers, min(dated_values).date().isoformat(), price_basis, listing_rows(parsed.get("user_dataset",{}).get("records",[])))
+                        except Exception:
+                            actual_history, actual_meta = pd.DataFrame(), {"source": "unavailable", "reason": "Dated price history unavailable"}
                     state = build_portfolio_state(
                         parsed, latest_prices=latest_prices, market_metadata=latest_meta,
-                        fx_history=fx_history, split_history=actual_history.attrs.get("splits"),
+                        fx_history=fx_history, split_history=actual_history.attrs.get("splits"), base_currency=reporting_currency,
                     )
+                    if snapshot:
+                        expected_equity = parsed['source']['snapshot_validation']['supplied_total'] + starting_cash
+                        if abs(state['totals']['equity'] - expected_equity) > .02:
+                            raise ValueError('Canonical valuation does not reconcile to the supplied snapshot; acceptance withheld.')
                     attempt_trust = diagnose_trust(state, parsed=parsed, market_metadata=latest_meta,
                                                    fx_history=fx_history, policy=trust_policy)
                     if attempt_trust["valuation_status"] == "blocked":
@@ -613,23 +709,15 @@ with main_col:
                         analytics["actual_performance"] = run_account_performance(state, actual_history, fx_history=fx_history)
                     analytics["trust_diagnostics"] = diagnose_trust(state, analytics, parsed=parsed,
                         market_metadata=latest_meta, fx_snapshot=attempt_trust["fx_snapshot"], policy=trust_policy)
-                    history_meta = {**history_meta, "actual_performance": actual_meta, "fx": fx_meta}
+                    history_meta = {**history_meta, "period": history_period, "actual_performance": actual_meta, "fx": fx_meta}
                     coverage = analytics.get("meta", {}).get("coverage", {})
                     if not coverage.get("available", True):
                         st.warning("Portfolio risk is unavailable: " + str(coverage.get("reason")))
                     for warning in state.get("meta", {}).get("warnings", []):
                         st.warning(warning)
 
-                st.session_state.parsed = parsed
-                st.session_state.portfolio_state = state
-                st.session_state.analytics = analytics
-                st.session_state.market_metadata = {"latest": latest_meta, "history": history_meta}
-                st.session_state.latest_scenario = None
-                st.session_state.trust_attempt = None
-                st.session_state.copilot_messages = []
-
-                insights = fallback_insights(state, analytics)
-                st.session_state.copilot_insights = insights
+                replace_accepted(st.session_state, parsed, state, analytics,
+                                 {"latest": latest_meta, "history": history_meta})
 
                 # The Copilot column is rendered before the input engine on each
                 # Streamlit run. Re-run once after a successful first analysis so
@@ -733,7 +821,7 @@ with main_col:
 
             st.divider()
             st.subheader("3. Portfolio Analytics")
-            st.caption("All monetary values and scenario prices are in USD. Quote currencies come from the input; missing Currency is assumed USD. GBX denotes pence.")
+            st.caption(f"Monetary values and scenario prices: {state.get('meta', {}).get('base_currency', 'USD')}. GBX quotes denote pence. Historical simulations are separate from snapshot valuation.")
             st.markdown('<div class="pa-section-note">Accepted portfolio · deterministic analytics from the current Portfolio State.</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="pa-kpi-group-label">PORTFOLIO SUMMARY</div>', unsafe_allow_html=True)
@@ -751,12 +839,12 @@ with main_col:
             section_header(
                 "Risk Snapshot",
                 "RISK & DOWNSIDE",
-                "VaR and Expected Shortfall are 1-business-day historical measures at 95% confidence, in USD. Volatility uses 252 business-day observations/year; max drawdown covers the selected history. Current-weight simulation assumes daily rebalancing and zero base-cash interest.",
+                "VaR and Expected Shortfall are 1-business-day historical measures at 95% confidence, in the reporting currency. Volatility uses 252 business-day observations/year; max drawdown covers the selected history. Current-weight simulation assumes daily rebalancing and zero base-cash interest.",
             )
             coverage = analytics.get("meta", {}).get("coverage", {})
             if not coverage.get("available", True):
                 st.warning("Full-portfolio risk withheld: " + str(coverage.get("reason")))
-            st.caption(f"Base currency: USD · Common observations: {coverage.get('common_observations', 0)} · Tail observations: {risk.get('tail_observations', 0)} · Risk-free rate: {percent(analytics.get('meta', {}).get('risk_free_rate', 0))}.")
+            st.caption(f"Base currency: {state['meta']['base_currency']} · Common observations: {coverage.get('common_observations', 0)} · Tail observations: {risk.get('tail_observations', 0)} · Risk-free rate: {percent(analytics.get('meta', {}).get('risk_free_rate', 0))}.")
             if risk.get("tail_observations", 0) < 20:
                 st.caption("The historical tail sample is small; VaR and ES estimates have substantial sampling uncertainty.")
             r2 = st.columns(4)
@@ -775,71 +863,26 @@ with main_col:
             section_header("Allocation & Risk", "PORTFOLIO STRUCTURE", "See where capital is concentrated and which holdings contribute most to portfolio risk.")
             chart1, chart2 = st.columns(2, gap="medium")
             with chart1:
-                st.plotly_chart(holdings_donut(analytics), use_container_width=True, config={"displaylogo": False})
+                render_chart(holdings_donut(analytics), use_container_width=True, config={"displaylogo": False})
                 insight_box(insights.get("holdings", ""))
             with chart2:
-                st.plotly_chart(risk_contribution_donut(analytics), use_container_width=True, config={"displaylogo": False})
+                render_chart(risk_contribution_donut(analytics), use_container_width=True, config={"displaylogo": False})
                 st.caption("Slices show absolute normalised contributions. A negative signed contribution is a hedge; see the table.")
                 if analytics.get("risk_contribution"):
                     safe_dataframe(pd.DataFrame(analytics["risk_contribution"])[["ticker", "risk_contribution_pct", "absolute_risk_share"]], hide_index=True, use_container_width=True)
                 insight_box(insights.get("risk_contribution", ""))
 
             section_header("Historical Behaviour", "PERFORMANCE THROUGH TIME", "Portfolio growth and peak-to-trough drawdown across the selected historical window.")
-            actual = analytics.get("actual_performance", {})
-            has_dated_history = bool(state.get("accounting_history", {}).get("available"))
-            show_actual = False
-            if has_dated_history:
-                show_actual = st.toggle(
-                    "View dated account / reconstructed holdings history",
-                    value=False,
-                    key="show_actual_portfolio_performance",
-                    help="Switch between the historical simulation of today's holdings and the dated portfolio path reconstructed from supplied purchase dates/prices or transaction executions.",
-                )
-                if show_actual and actual.get("available"):
-                    method = str(actual.get("method") or "dated accounting history")
-                    if method == "reconstructed dated holdings":
-                        st.caption("Reconstructed from the supplied purchase dates and quantities using historical market prices and FX. Each current position appears only from its purchase date; quantities are interpreted as current, split-adjusted shares. Historical cash is approximated by constant currency balances and dividends are excluded from this price-only reconstruction. Purchase prices remain cost-basis information; position entry is neutralised at its first market mark so it is not mistaken for investment return. Previously sold positions and historical cash movements cannot be inferred from a holdings snapshot.")
-                    else:
-                        st.caption("Reconstructed from the dated transaction ledger and supplied execution prices. External deposits and withdrawals use an end-of-day timing convention. Cash stays in its stated currency; supplied dividend cash flows are included once. Missing dividend records mean income is incomplete.")
-                elif show_actual:
-                    st.info(actual.get("reason") or "Dated portfolio information was detected, but the reconstructed performance path is unavailable.")
-
-            chart_analytics = analytics
-            if show_actual and actual.get("available"):
-                chart_analytics = dict(analytics)
-                chart_analytics["series"] = dict(analytics.get("series", {}))
-                chart_analytics["series"]["portfolio_path"] = actual.get("portfolio_path", [])
-
-            chart3, chart4 = st.columns(2, gap="medium")
-            with chart3:
-                if show_actual and actual.get("available"):
-                    st.plotly_chart(reconstructed_value_figure(actual), use_container_width=True, config={"displaylogo": False})
-                    summary = actual.get("accounting_summary", {})
-                    insight_box(
-                        f"Reconstructed value of the currently-held positions. Ending value: "
-                        f"{number(summary.get('ending_equity'))} {actual.get('base_currency', 'USD')}. "
-                        "Purchase dates control when each holding enters the history."
-                    )
-                else:
-                    st.plotly_chart(performance_figure(chart_analytics), use_container_width=True, config={"displaylogo": False})
-                if not (show_actual and actual.get("available")):
-                    pass
-                else:
-                    insight_box(insights.get("volatility", ""))
-            with chart4:
-                st.plotly_chart(drawdown_figure(chart_analytics), use_container_width=True, config={"displaylogo": False})
-                if show_actual and actual.get("available"):
-                    insight_box(f"Maximum drawdown on the reconstructed dated portfolio path is {percent(actual.get('metrics', {}).get('max_drawdown'))}.")
-                else:
-                    insight_box(insights.get("drawdown", ""))
+            from portfolio_analytics.ui.history_workspace import render_history_workspace
+            render_history_workspace(state, analytics)
 
             section_header("Diversification & Exposure", "PORTFOLIO RELATIONSHIPS", "Correlation and signed exposure show how positions interact and where concentration can build.")
             chart5, chart6 = st.columns([1.15, 0.85], gap="medium")
             with chart5:
-                st.plotly_chart(correlation_heatmap(analytics), use_container_width=True, config={"displaylogo": False})
+                render_chart(correlation_heatmap(analytics), use_container_width=True, config={"displaylogo": False})
                 insight_box(insights.get("correlation", ""))
             with chart6:
-                st.plotly_chart(exposure_bar(analytics), use_container_width=True, config={"displaylogo": False})
+                render_chart(exposure_bar(analytics), use_container_width=True, config={"displaylogo": False})
                 insight_box(insights.get("pnl", ""))
 
             section_header("Historical Combination Risk", "SECURITY COMBINATIONS", "Compare equal-weight groups using historical daily returns. These are historical risk diagnostics, not forecasts.")
@@ -906,9 +949,9 @@ with main_col:
                     chosen_label = st.selectbox("Risk measure", list(metric_labels), key="combination_risk_metric")
                     metric = metric_labels[chosen_label]
                     if int(combination_risk.get("combination_size", 2)) == 2:
-                        st.plotly_chart(combination_risk_heatmap(combination_risk, metric), use_container_width=True, config={"displaylogo": False})
+                        render_chart(combination_risk_heatmap(combination_risk, metric), use_container_width=True, config={"displaylogo": False})
                     else:
-                        st.plotly_chart(combination_risk_ranked(combination_risk, metric), use_container_width=True, config={"displaylogo": False})
+                        render_chart(combination_risk_ranked(combination_risk, metric), use_container_width=True, config={"displaylogo": False})
 
                     summaries = [
                         ("Lowest volatility", combination_risk.get("lowest_volatility"), "annual_volatility"),
@@ -994,9 +1037,9 @@ with main_col:
 
             scenario_chart1, scenario_chart2 = st.columns(2, gap="medium")
             with scenario_chart1:
-                st.plotly_chart(scenario_comparison_bar(scenario), use_container_width=True, config={"displaylogo": False})
+                render_chart(scenario_comparison_bar(scenario), use_container_width=True, config={"displaylogo": False})
             with scenario_chart2:
-                st.plotly_chart(scenario_position_change_bar(scenario), use_container_width=True, config={"displaylogo": False})
+                render_chart(scenario_position_change_bar(scenario), use_container_width=True, config={"displaylogo": False})
 
             with st.expander("Scenario action log"):
                 st.json(scenario.get("actions", []))

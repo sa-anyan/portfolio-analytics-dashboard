@@ -149,6 +149,11 @@ def fetch_price_history(
         kwargs["start"] = start
         if end is not None:
             kwargs["end"] = end
+    elif period in {"1y", "3y", "5y", "10y"}:
+        # Explicit dates also support 3y, which is not a standard Yahoo period.
+        today = pd.Timestamp.today().normalize()
+        kwargs["start"] = (today - pd.DateOffset(years=int(period[:-1]))).date().isoformat()
+        kwargs["end"] = (today + pd.Timedelta(days=1)).date().isoformat()
     else:
         kwargs["period"] = period
 

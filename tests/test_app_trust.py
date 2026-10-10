@@ -22,6 +22,7 @@ def button(app, name):
 
 def discover(app):
     next(r for r in app.radio if r.label == "Workspace").set_value("Deep Analytics").run()
+    next(r for r in app.radio if r.label == "Deep Analytics view").set_value("Discover").run()
     assert not app.exception, [e.message for e in app.exception]
 
 
