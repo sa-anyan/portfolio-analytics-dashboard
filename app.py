@@ -28,6 +28,7 @@ from portfolio_analytics.security.session import synchronise_owner
 from portfolio_analytics.analytics.engine import run_analytics, run_account_performance, returns_from_analytics
 from portfolio_analytics.analytics.combination_risk import calculate_combination_risk
 from portfolio_analytics.core.market_data import fetch_latest_prices, fetch_price_history
+from portfolio_analytics.input_engine.price_history import spreadsheet_price_history
 from portfolio_analytics.core.fx import fetch_fx_history
 from portfolio_analytics.core.portfolio_state import build_portfolio_state
 from portfolio_analytics.input_engine.manual import parse_manual_holdings
@@ -519,6 +520,13 @@ with main_col:
         with settings_col3:
             use_live_prices = st.toggle("Use live market prices", value=True)
 
+        use_sheet_history = st.checkbox("Use spreadsheet price history", value=False) if source_type != "Multiple account files" else False
+        history_upload = None
+        if use_sheet_history:
+            st.caption("Upload dated daily total-return adjusted prices: Date, Ticker, Adjusted Close. Prices must use each holding’s trading currency/units. Current quotes and purchase dates are not price history. FX history still comes from Yahoo Finance.")
+            history_upload = st.file_uploader("Spreadsheet price history", type=["csv", "xlsx"], key="history_upload")
+        else:
+            st.caption("Historical risk and instrument charts use Yahoo Finance adjusted prices over the selected window. Supplied snapshot values remain separate; this models today’s holdings, not actual past account performance.")
         uploaded = None
         manual_frame = None
 
@@ -638,9 +646,16 @@ with main_col:
 
                 with st.spinner("Fetching market and currency history..."):
                     try:
-                        history, history_meta = cached_price_history(market_tickers, history_period)
+                        if use_sheet_history:
+                            if history_upload is None:
+                                raise ValueError("Upload dated spreadsheet price history or uncheck the spreadsheet option.")
+                            history, history_meta = spreadsheet_price_history(history_upload.getvalue(), history_upload.name, market_tickers, history_period)
+                        else:
+                            history, history_meta = cached_price_history(market_tickers, history_period)
                     except Exception:
-                        history, history_meta = pd.DataFrame(), {"source": "unavailable", "reason": "Price-history provider unavailable"}
+                        if use_sheet_history:
+                            raise
+                        history, history_meta = pd.DataFrame(), {"source": "Yahoo Finance unavailable", "reason": "Price-history provider unavailable"}
                     normalised = parsed.get("normalised_dataset", {})
                     records = normalised.get("holdings", []) + normalised.get("ledger", []) + normalised.get("cashflows", [])
                     currencies = tuple(sorted({str(row.get("Currency") or "USD").upper() for row in records}))
