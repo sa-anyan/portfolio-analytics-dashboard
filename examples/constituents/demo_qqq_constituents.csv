@@ -1,0 +1,9 @@
+Parent Ticker,Constituent Ticker,Weight (%),As Of Date,Asset Class
+QQQ,NVDA,10,2026-09-30,Equity
+QQQ,MSFT,9,2026-09-30,Equity
+QQQ,AAPL,8,2026-09-30,Equity
+QQQ,AMZN,6,2026-09-30,Equity
+QQQ,GOOGL,5,2026-09-30,Equity
+QQQ,META,4,2026-09-30,Equity
+QQQ,AVGO,5,2026-09-30,Equity
+QQQ,TSLA,3,2026-09-30,Equity

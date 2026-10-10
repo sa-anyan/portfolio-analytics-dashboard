@@ -246,17 +246,6 @@ def get_api_key() -> str | None:
 # Paid access is enforced at the provider boundary, not by a session counter.
 
 
-@st.cache_data(show_spinner=False)
-def demo_holdings_workbook() -> bytes:
-    """Build the public Excel demo from the same holdings dataset as the CSV download."""
-    examples = Path(__file__).resolve().parent / "examples"
-    holdings = pd.read_csv(examples / "demo_portfolio_holdings.csv")
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        holdings.to_excel(writer, sheet_name="Holdings", index=False)
-    return buffer.getvalue()
-
-
 #______________________________________________________________________________
 # CACHED MARKET DATA
 #______________________________________________________________________________
@@ -348,6 +337,9 @@ def prepare_account_candidate(batch, declarations, overrides, live, period, poli
 #______________________________________________________________________________
 # MAIN + COPILOT LAYOUT
 #______________________________________________________________________________
+
+from portfolio_analytics.ui.demo_portfolios import render_demo_portfolios, dataset as demo_dataset, constituent_bundle
+render_demo_portfolios()
 
 trust_policy = TrustPolicy(**st.session_state.trust_policy)
 if st.session_state.analytics is not None:
@@ -512,20 +504,20 @@ with main_col:
         source_type = st.radio(
             "Input method",
             ["Upload file", "Manual entry", "Multiple account files"],
-            horizontal=True,
+            horizontal=True, key="input_method",
         )
 
         st.caption("Use the listing's quote currency (GBX for pence). Holdings snapshots use current shares and cost per current share; ledger rows use original execution quantities/prices. Additional cash uses the reporting currency: USD normally, GBP for a validated GBP statement.")
 
         settings_col1, settings_col2, settings_col3 = st.columns(3)
         with settings_col1:
-            starting_cash = st.number_input("Starting / current cash", value=0.0, step=1000.0)
+            starting_cash = st.number_input("Starting / current cash", value=0.0, step=1000.0, key="portfolio_starting_cash")
         with settings_col2:
             history_period = st.selectbox("Historical window", ["1y", "3y", "5y", "10y"], index=1)
         with settings_col3:
-            use_live_prices = st.toggle("Use live market prices", value=True)
+            use_live_prices = st.toggle("Use live market prices", value=True, key="use_live_prices")
 
-        use_sheet_history = st.checkbox("Use spreadsheet price history", value=False) if source_type != "Multiple account files" else False
+        use_sheet_history = st.checkbox("Use spreadsheet price history", value=False, key="use_spreadsheet_history") if source_type != "Multiple account files" else False
         history_upload = None
         if use_sheet_history:
             st.caption("Upload dated daily total-return adjusted prices: Date, Ticker, Adjusted Close. Prices must use each holding’s trading currency/units. Current quotes and purchase dates are not price history. FX history still comes from Yahoo Finance.")
@@ -541,25 +533,6 @@ with main_col:
                 type=["csv", "xlsx"],
                 help="The parser classifies holdings vs ledger and normalises it before anything reaches Portfolio State.",
             )
-            st.caption("No portfolio file? Download one of the synthetic demo datasets below, then upload it above.")
-            demo_col1, demo_col2 = st.columns(2)
-            examples_dir = Path(__file__).resolve().parent / "examples"
-            with demo_col1:
-                st.download_button(
-                    "Download demo holdings (CSV)",
-                    data=(examples_dir / "demo_portfolio_holdings.csv").read_bytes(),
-                    file_name="portfolio_demo_holdings.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-            with demo_col2:
-                st.download_button(
-                    "Download demo holdings (Excel)",
-                    data=demo_holdings_workbook(),
-                    file_name="portfolio_demo_holdings.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
         elif source_type == "Multiple account files":
             render_ingestion(prepare_account_candidate, use_live_prices=use_live_prices, history_period=history_period, policy=trust_policy)
         else:
@@ -585,6 +558,12 @@ with main_col:
             )
             st.session_state.manual_rows = manual_frame
 
+        demo_request = st.session_state.pop('demo_request', None)
+        if demo_request:
+            demo_source = demo_dataset(demo_request['portfolio'])
+            uploaded = BytesIO(demo_source['data'])
+            uploaded.name = demo_source['filename']
+
         snapshot_date = None
         upload_fingerprint = None
         supplied_snapshot = False
@@ -608,7 +587,7 @@ with main_col:
 
         analyse = st.button("Parse & Analyse Portfolio", type="primary", disabled=source_type == "Multiple account files")
 
-        if analyse:
+        if analyse or demo_request:
             st.session_state.trust_attempt = None
             parsed, latest_prices, latest_meta, fx_history = None, {}, {}, pd.DataFrame()
             attempt_trust = None
@@ -716,8 +695,21 @@ with main_col:
                     for warning in state.get("meta", {}).get("warnings", []):
                         st.warning(warning)
 
+                demo_store, demo_declarations = {}, {}
+                if demo_request and demo_request['parents']:
+                    demo_store, demo_declarations = constituent_bundle(state, parsed, demo_request['parents'],
+                        maximum=st.session_state.get('constituent_max_age', 90))
                 replace_accepted(st.session_state, parsed, state, analytics,
                                  {"latest": latest_meta, "history": history_meta})
+                st.session_state.pop('demo_notice', None)
+                if demo_request:
+                    st.session_state['demo_notice'] = ('success', 'Loaded ' + demo_source['name'] +
+                        (' with SPY + QQQ partial constituents.' if demo_request['parents'] else '.') +
+                        ' Synthetic inputs; Yahoo history is used when available.')
+                    st.session_state.update(fund_constituents=demo_store, fund_eligibility=demo_declarations)
+                    st.session_state['overview_history_preferences'] = {
+                        'mode': 'Actual Portfolio History' if parsed['classification'] == 'ledger' else "Simulate Today's Holdings",
+                        'period': history_period}
 
                 # The Copilot column is rendered before the input engine on each
                 # Streamlit run. Re-run once after a successful first analysis so

@@ -8,7 +8,7 @@ from portfolio_analytics.input_engine.snapshot import reported_snapshot
 from portfolio_analytics.core.portfolio_state import build_portfolio_state
 from portfolio_analytics.analytics.engine import run_analytics
 
-SAMPLE = Path(__file__).resolve().parents[1] / 'examples/demo_portfolio_holdings.csv'
+SAMPLE = Path(__file__).resolve().parents[1] / 'tests/fixtures/reported_gbp_statement.csv'
 
 
 def fixture():
@@ -45,7 +45,7 @@ def test_historical_reconciled_statement_is_diagnosed_at_declared_date():
     from portfolio_analytics.core.portfolio_state import build_portfolio_state
     from portfolio_analytics.input_engine.parser import parse_upload
     from pathlib import Path
-    raw=Path('examples/demo_portfolio_holdings.csv').read_bytes()
+    raw=Path('tests/fixtures/reported_gbp_statement.csv').read_bytes()
     import pandas as pd
     from io import BytesIO
     historical=pd.read_csv(BytesIO(raw))
@@ -67,6 +67,6 @@ def test_statement_date_must_not_precede_supplied_purchases():
     from pathlib import Path
     from portfolio_analytics.input_engine.parser import parse_upload
     import pytest
-    raw=Path('examples/demo_portfolio_holdings.csv').read_bytes()
+    raw=Path('tests/fixtures/reported_gbp_statement.csv').read_bytes()
     with pytest.raises(ValueError,match='precedes its supplied purchase date'):
         reported_snapshot(parse_upload(raw,'sample.csv'),'2023-10-26')

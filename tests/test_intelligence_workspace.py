@@ -9,7 +9,7 @@ from portfolio_analytics.core import market_data, fx
 from portfolio_analytics.ui.intelligence import positions_with_labels
 
 APP=Path(__file__).resolve().parents[1]/'app.py'
-SAMPLE=APP.parent/'examples/demo_portfolio_holdings.csv'
+SAMPLE=APP.parent/'tests/fixtures/reported_gbp_statement.csv'
 
 
 def test_snapshot_ui_views_reuse_state_and_offline_history_cannot_blank_allocations(monkeypatch):
